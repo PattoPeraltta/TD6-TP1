@@ -1,10 +1,12 @@
-## Descripción del conjunto de datos
+## Sección 1: Introducción al problema
+
+### Descripción del conjunto de datos
 
 El conjunto de datos seleccionado corresponde a la **campaña de marketing de una institución bancaria de Portugal**, publicado en el *UCI Machine Learning Repository*. Contiene **45.211 observaciones** y **17 variables predictoras**, que incluyen tanto atributos **numéricos** (edad, duración de la última llamada, balance de la cuenta, número de contactos, entre otros) como **categóricos** (profesión, estado civil, nivel educativo, tipo de vivienda, canal de contacto, mes de contacto, etc.).
 
 La variable objetivo es **binaria**: indica si el cliente **aceptó (yes)** o **rechazó (no)** suscribirse a un depósito a plazo luego de la campaña de marketing. Este problema se formula como una tarea de **clasificación binaria**, donde el objetivo es predecir la propensión del cliente a aceptar la oferta bancaria en base a sus características sociodemográficas y al historial de interacciones con el banco.
 
-## Justificación para el uso de árboles de decisión
+### Justificación para el uso de árboles de decisión
 
 La elección de este conjunto de datos es especialmente adecuada para aplicar **árboles de decisión** y métodos derivados (Random Forests, Gradient Boosted Trees), debido a:
 
@@ -15,9 +17,61 @@ La elección de este conjunto de datos es especialmente adecuada para aplicar **
 
 En resumen, este conjunto de datos no solo plantea un problema realista e importante de clasificación binaria, sino que también se ajusta adecuadamente a las capacidades de los árboles de decisión, permitiendo explorar tanto sus poderes predictivo y capacidades interpretativas.
 
+## Sección 2: Preparación de los datos
+
+### Carga del dataset
+
+```{r message=FALSE, warning=FALSE}
+# Librerías necesarias
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+# Cargar dataset (suponiendo que el archivo se llama bank.csv)
+bank <- read.csv("bank.csv", sep = ";")
+
+# Ver estructura inicial
+str(bank)
+
+# Variable objetivo (binaria: yes/no)
+table(bank$y)
+
+```
+
+### Analisis exploratorio
+
 ```{r}
 
 
+# Resumen general de variables numéricas
+summary(select_if(bank, is.numeric))
 
+# Frecuencias de algunas variables categóricas clave
+table(bank$job)
+table(bank$education)
+
+# Distribución de la edad de los clientes (grafico)
+ggplot(bank, aes(x = age)) +
+  geom_histogram(binwidth = 5, fill = "steelblue", color = "white") +
+  labs(x = "Edad", y = "Frecuencia")
+
+# Comparación de una variable categórica con la variable objetivo
+ggplot(bank, aes(x = job, fill = y)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proporción de aceptación del depósito según ocupación",
+       x = "Ocupación", y = "Proporción") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 ```
+
+### Comentarios sobre los datos:
+
+-   **Edad**: la mayoría de los clientes se concentran entre los 30 y 50 años, con algunos outliers en edades más altas.
+
+-   **Ocupación**: existen diferencias notorias en la tasa de aceptación de la campaña según el tipo de trabajo; por ejemplo, clientes en sectores administrativos tienden a tener una proporción distinta a los desempleados o estudiantes.
+
+-   **Balance de cuenta y duración de llamada**: presentan gran variabilidad y podrían ser predictores relevantes para el modelo.
+
+-   **Desbalance de clases**: la variable objetivo está desbalanceada (muchos más *no* que *sí*), lo cual será importante a considerar en la modelización.
+
+## Sección 3: Construcción de un árbol de decisión básico
