@@ -1,3 +1,16 @@
+```{r message=FALSE, warning=FALSE}
+# Librerias
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(pROC)
+library(caret)
+library(rpart)
+
+# Semilla
+set.seed(20250818)
+```
+
 ## Sección 1: Introducción al problema
 
 ### Descripción del conjunto de datos
@@ -22,10 +35,6 @@ En resumen, este conjunto de datos no solo plantea un problema realista e import
 ### Carga del dataset
 
 ```{r message=FALSE, warning=FALSE}
-# Librerías necesarias
-library(readr)
-library(dplyr)
-library(ggplot2)
 
 # Cargar dataset (suponiendo que el archivo se llama bank.csv)
 bank <- read.csv("bank.csv", sep = ";")
@@ -41,7 +50,6 @@ table(bank$y)
 ### Analisis exploratorio
 
 ```{r message=FALSE, warning=FALSE}
-
 
 # Resumen general de variables numéricas
 summary(select_if(bank, is.numeric))
@@ -77,9 +85,8 @@ ggplot(bank, aes(x = job, fill = y)) +
 ## Sección 3: Construcción de un árbol de decisión básico
 
 ```{r message=FALSE, warning=FALSE}
-library(caret)
 
-set.seed(20250818)
+
 
 
 n <- nrow(bank)
@@ -95,7 +102,7 @@ idx_testeo        <- integer(0)
 
 for (i in 1:n) {
   r <- runif(1)  # número aleatorio entre 0 y 1
-  
+
   if (r < 0.15 && length(idx_validacion) < max_valid) {
     idx_validacion <- c(idx_validacion, i)
   } else if (r < 0.30 && length(idx_testeo) < max_test) {
@@ -113,13 +120,12 @@ testeo        <- bank[idx_testeo,        , drop = FALSE]
 ```
 
 ```{r message=FALSE, warning=FALSE}
-library(rpart)
 
 # Entrenar árbol básico con defaults
 arbol_basico <- rpart(
   y ~ .,
   data   = entrenamiento,
-  method = "class"  
+  method = "class"
 )
 ```
 #### Hiperparámetros por defecto de `rpart`
@@ -177,3 +183,147 @@ rpart.plot(arbol_basico, type = 2, extra = 106, box.palette = "GnBu")
      - Ocupaciones no profesionales y `marital = married` empujan a **NO**.  
      - Ocupaciones profesionales/servicios y otros estados civiles elevan la chance de **YES**.
 
+
+## 4. Evaluación del árbol de decisión básico
+```{r}
+# Normalización de niveles en los tres splits
+for (nm in c("entrenamiento", "validacion", "testeo")) {
+  if (exists(nm)) {
+    tmp <- get(nm)
+    if (!is.factor(tmp$y)) tmp$y <- as.factor(tmp$y)
+    if (all(c("no", "yes") %in% levels(tmp$y))) {
+      tmp$y <- factor(tmp$y, levels = c("no", "yes"))
+    }
+    assign(nm, tmp)
+  }
+}
+
+# Chequeos
+stopifnot(exists("arbol_basico"), exists("testeo"))
+stopifnot("y" %in% names(testeo))
+stopifnot(is.factor(testeo$y))
+
+# Predicciones en testeo
+pred_class <- predict(arbol_basico, newdata = testeo, type = "class")
+pred_class <- factor(pred_class, levels = levels(testeo$y))
+
+pred_prob_mat <- predict(arbol_basico, newdata = testeo, type = "prob")
+pos_col <- if ("yes" %in% colnames(pred_prob_mat)) "yes" else tail(colnames(pred_prob_mat), 1)
+pred_prob <- pred_prob_mat[, pos_col]
+
+# Matriz de confusión y métricas
+matriz_conf <- caret::confusionMatrix(pred_class, testeo$y, positive = "yes")
+
+accuracy  <- matriz_conf$overall["Accuracy"]
+precision <- matriz_conf$byClass["Precision"]
+recall    <- matriz_conf$byClass["Recall"]
+f1        <- matriz_conf$byClass["F1"]
+
+# --- Gráficos: Matriz de confusión (conteos y proporciones) ------------------
+
+# Conteos
+cm_tbl <- as.table(matriz_conf$table)
+cm_df <- as.data.frame(cm_tbl)
+names(cm_df) <- c("real", "pred", "freq")
+
+ggplot(cm_df, aes(x = real, y = pred, fill = freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = freq), size = 4) +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  labs(
+    title = "Matriz de confusión (conteos)",
+    x = "Valor real",
+    y = "Predicción",
+    fill = "Frecuencia"
+  ) +
+  theme_minimal()
+
+# Proporciones por clase real
+cm_prop <- dplyr::group_by(cm_df, real)
+cm_prop <- dplyr::mutate(cm_prop, prop = freq / sum(freq))
+cm_prop <- dplyr::ungroup(cm_prop)
+
+ggplot(cm_prop, aes(x = real, y = pred, fill = prop)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = sprintf("%.1f%%", 100 * prop)), size = 4) +
+  scale_fill_gradient(low = "lavender", high = "purple") +
+  labs(
+    title = "Matriz de confusión (proporciones por real)",
+    x = "Valor real",
+    y = "Predicción",
+    fill = "Proporción"
+  ) +
+  theme_minimal()
+
+
+# ROC y AUC
+roc_curve <- pROC::roc(
+  testeo$y,
+  pred_prob,
+  levels = c("no", "yes"),
+  direction = "<"
+)
+auc_value <- pROC::auc(roc_curve)
+
+# Tabla resumen
+resumen <- data.frame(
+  Metrica = c("Accuracy", "Precision", "Recall", "F1", "AUC-ROC"),
+  Valor   = c(
+    as.numeric(accuracy),
+    as.numeric(precision),
+    as.numeric(recall),
+    as.numeric(f1),
+    as.numeric(auc_value)
+  )
+)
+knitr::kable(resumen, digits = 4, caption = "Punto 4 — Métricas (Test)")
+
+
+plot(roc_curve, lwd = 2, main = "Curva ROC — Árbol básico (Test)")
+abline(a = 0, b = 1, lty = 2)
+```
+
+### Interpretación de resultados
+
+Al evaluar el árbol de decisión básico en el conjunto de testeo se observa
+que el modelo alcanza un **accuracy de aproximadamente 92%**, un valor
+elevado y aparentemente satisfactorio a primera vista. Sin embargo, al
+analizar con mayor detalle la matriz de confusión se advierte que este buen
+desempeño global está muy influido por el **desbalance de clases**: la
+mayoría de los clientes pertenece a la clase negativa (“no”), por lo que un
+modelo que siempre predijera “no” alcanzaría un **No Information Rate
+(NIR) del 90%**. Esto significa que la mejora real sobre una estrategia
+trivial es más reducida de lo que sugiere el valor bruto del accuracy, e
+incluso la prueba de significancia muestra que la diferencia respecto al NIR
+no es concluyente al 5% de significancia.
+
+La interpretación cambia si se examinan otras métricas específicas de la
+clase positiva. La **precisión (precision)** alcanza un 64%, lo que indica
+que cuando el modelo se arriesga a predecir que un cliente aceptará el
+depósito (“yes”), tiene más de la mitad de probabilidades de estar en lo
+cierto. Sin embargo, la **sensibilidad (recall)** es mucho más baja, alrededor
+de 41%, lo que significa que el árbol deja escapar a más de la mitad de los
+clientes que efectivamente aceptan la oferta. Esto se traduce en un número
+importante de falsos negativos (39 en el testeo), lo que podría ser
+problemático en un contexto de marketing donde detectar a los posibles
+clientes interesados suele ser más importante que evitar falsos positivos. El
+**F1-score**, que combina precisión y recall en una sola medida, queda en
+torno a 0.50, lo que confirma un equilibrio modesto y refleja la dificultad
+del modelo para captar de manera consistente la clase minoritaria.
+
+En contraste, la **especificidad del modelo es muy alta (97.5%)**, lo cual
+significa que el árbol distingue muy bien a los clientes que no contratarán
+el depósito, cometiendo muy pocos falsos positivos. Esta asimetría entre
+sensibilidad y especificidad está en línea con lo que se observa en la prueba
+de McNemar, que arroja un p-valor significativo indicando que los errores
+no se distribuyen de manera balanceada: el modelo tiende claramente a
+equivocarse más en los positivos que en los negativos.
+
+Finalmente, la **curva ROC y el AUC confirman la existencia de señal
+predictiva**. El área bajo la curva se ubica en 0.79, lo que indica que, si se
+toma al azar un cliente que aceptó y uno que rechazó la oferta, en casi ocho
+de cada diez casos el modelo asigna una probabilidad mayor al cliente
+positivo que al negativo. Este valor refleja que, más allá del umbral de
+decisión fijo que usa `rpart` (basado en la mayoría de la hoja, equivalente a
+0.5), las probabilidades generadas contienen información útil y podrían
+aprovecharse para mejorar el recall ajustando el umbral de clasificación.
