@@ -2,7 +2,7 @@
 
 ### Descripción del conjunto de datos
 
-El conjunto de datos seleccionado corresponde a la **campaña de marketing de una institución bancaria de Portugal**, publicado en el *UCI Machine Learning Repository*. Contiene **45.211 observaciones** y **17 variables predictoras**, que incluyen tanto atributos **numéricos** (edad, duración de la última llamada, balance de la cuenta, número de contactos, entre otros) como **categóricos** (profesión, estado civil, nivel educativo, tipo de vivienda, canal de contacto, mes de contacto, etc.).
+El conjunto de datos seleccionado corresponde a la **campaña de marketing de una institución bancaria de Portugal**, publicado en el *UCI Machine Learning Repository*. Contiene **45.211 observaciones** y **17 variables predictoras**, que incluyen tanto atributos **numéricos** (edad, duración de la última llamada, balance de la cuenta, entre otros) como **categóricos** (profesión, estado civil, nivel educativo, tipo de vivienda, canal de contacto, mes de contacto, etc.).
 
 La variable objetivo es **binaria**: indica si el cliente **aceptó (yes)** o **rechazó (no)** suscribirse a un depósito a plazo luego de la campaña de marketing. Este problema se formula como una tarea de **clasificación binaria**, donde el objetivo es predecir la propensión del cliente a aceptar la oferta bancaria en base a sus características sociodemográficas y al historial de interacciones con el banco.
 
@@ -13,7 +13,7 @@ La elección de este conjunto de datos es especialmente adecuada para aplicar **
 1.  **Mezcla de variables**: los árboles pueden manejar de manera natural tanto predictores numéricos como categóricos sin requerir transformaciones complejas.
 2.  **Relaciones no lineales y reglas complejas**: la decisión de un cliente no depende de una regla simple (ej., "si edad \> 30, entonces sí"), sino de la interacción entre múltiples factores. Los árboles permiten modelar estas interacciones mediante divisiones jerárquicas.
 3.  **Interpretabilidad**: en un contexto bancario, es valioso explicar por qué un modelo predice que un cliente aceptará o no la campaña. Los árboles permiten obtener reglas claras y comprensibles.
-4.  **Escalabilidad**: el dataset tiene un tamaño lo suficientemente grande para evaluar el desempeño de modelos complejos, pero no excesivo como para impedir un entrenamiento eficiente.
+4.  **Escalabilidad**: el dataset tiene un tamaño lo suficientemente grande para evaluar el desempeño de modelos complejos, pero no excesivo como para impedir un train eficiente.
 
 En resumen, este conjunto de datos no solo plantea un problema realista e importante de clasificación binaria, sino que también se ajusta adecuadamente a las capacidades de los árboles de decisión, permitiendo explorar tanto sus poderes predictivo y capacidades interpretativas.
 
@@ -40,7 +40,7 @@ table(bank$y)
 
 ### Analisis exploratorio
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 
 
 # Resumen general de variables numéricas
@@ -75,3 +75,105 @@ ggplot(bank, aes(x = job, fill = y)) +
 -   **Desbalance de clases**: la variable objetivo está desbalanceada (muchos más *no* que *sí*), lo cual será importante a considerar en la modelización.
 
 ## Sección 3: Construcción de un árbol de decisión básico
+
+```{r message=FALSE, warning=FALSE}
+library(caret)
+
+set.seed(20250818)
+
+
+n <- nrow(bank)
+
+# límites
+max_valid <- floor(0.15 * n)
+max_test  <- floor(0.15 * n)
+
+# listas de índices
+idx_entrenamiento <- integer(0)
+idx_validacion    <- integer(0)
+idx_testeo        <- integer(0)
+
+for (i in 1:n) {
+  r <- runif(1)  # número aleatorio entre 0 y 1
+  
+  if (r < 0.15 && length(idx_validacion) < max_valid) {
+    idx_validacion <- c(idx_validacion, i)
+  } else if (r < 0.30 && length(idx_testeo) < max_test) {
+    idx_testeo <- c(idx_testeo, i)
+  } else {
+    idx_entrenamiento <- c(idx_entrenamiento, i)
+  }
+}
+
+# subconjuntos finales
+entrenamiento <- bank[idx_entrenamiento, , drop = FALSE]
+validacion    <- bank[idx_validacion,    , drop = FALSE]
+testeo        <- bank[idx_testeo,        , drop = FALSE]
+
+```
+
+```{r message=FALSE, warning=FALSE}
+library(rpart)
+
+# Entrenar árbol básico con defaults
+arbol_basico <- rpart(
+  y ~ .,
+  data   = entrenamiento,
+  method = "class"  
+)
+```
+#### Hiperparámetros por defecto de `rpart`
+
+- **`minsplit = 20`**  
+  Un nodo debe tener **al menos 20** observaciones para que se intente un split. Limita la fragmentación temprana y reduce el sobreajuste en nodos muy chicos.
+
+- **`minbucket = round(minsplit/3)` → ~7**  
+  Tamaño mínimo de **cada hoja**. Con el valor por defecto de `minsplit`, cada hoja terminal debe tener ~7 observaciones. Evita hojas ínfimas e inestables.
+
+- **`cp = 0.01`** (complexity parameter)  
+  Solo se aceptan splits que reduzcan el error relativo **≥ 1%**. Favorece árboles más chicos y acelera el ajuste. Luego se genera la secuencia de podas según `cp`.
+
+- **`xval = 10`**  
+  **Validación cruzada 10-fold interna** para estimar el error y elegir el nivel de poda (en la tabla de `cp`).
+
+- **`maxdepth = 30`**  
+  Profundidad máxima muy alta (prácticamente sin tope en la práctica). El control real de complejidad lo imponen `cp`, `minsplit` y `minbucket`.
+
+- **`maxcompete = 4`**  
+  Guarda hasta **4 splits competidores** por nodo (no afecta el ajuste; es metadato útil para inspección).
+
+- **`maxsurrogate = 5`**  
+  Guarda hasta **5 variables sustitutas** por nodo para manejar **valores faltantes**.
+
+- **`usesurrogate = 2`**  
+  Si falta la variable del split principal, **usa surrogates en orden**; si tampoco están disponibles, envía el caso por la **rama mayoritaria**.
+
+- **`surrogatestyle = 0`**  
+  El “mejor” surrogate se elige por **número total de aciertos** (penaliza variables con muchos NA).
+
+- (**Clasificación**) **`split = "gini"`**, **`prior`** proporcionales a las **frecuencias de clase observadas** y **`loss`** con costo uniforme de error (0 en la diagonal y 1 fuera de la diagonal).  
+  Implica que los cortes minimizan **impureza Gini**, asumiendo las prevalencias del dataset y costos de clasificación iguales, salvo que se especifiquen otros.
+
+
+```{r message=FALSE, warning=FALSE}
+library(rpart.plot)
+# Visualización
+rpart.plot(arbol_basico, type = 2, extra = 106, box.palette = "GnBu")
+
+```
+
+**Altura observada:** 5 niveles (raíz + 4 divisiones).  
+
+1) **Raíz — `duration < 477 s`**  
+   Divide “llamadas cortas” vs “largas”. Es el corte más informativo: las cortas concentran **NO**, las largas elevan la chance de **YES**.
+
+2) **Rama izquierda (`duration < 477`)**  
+   - Siguientes cortes: **`poutcome`** (resultados previos de campaña), **`month`** y umbrales más bajos de **`duration`** (≈ 180 s).  
+   - Interpretación: **llamadas muy cortas** y **sin buen antecedente** tienden a **NO**. Los ajustes con `month` refinan pequeños subgrupos.
+
+3) **Rama derecha (`duration ≥ 477`)**  
+   - Segundo umbral de **`duration`**: **≈ 765 s** separa **llamadas largas** (alta probabilidad de **YES**) de las **intermedias**.  
+   - En la franja intermedia, la decisión se afina con **`job`**, **`marital`**, y en menor medida **`month/day`**:
+     - Ocupaciones no profesionales y `marital = married` empujan a **NO**.  
+     - Ocupaciones profesionales/servicios y otros estados civiles elevan la chance de **YES**.
+
