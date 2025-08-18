@@ -1,0 +1,23 @@
+## Descripción del conjunto de datos
+
+El conjunto de datos seleccionado corresponde a la **campaña de marketing de una institución bancaria de Portugal**, publicado en el *UCI Machine Learning Repository*. Contiene **45.211 observaciones** y **17 variables predictoras**, que incluyen tanto atributos **numéricos** (edad, duración de la última llamada, balance de la cuenta, número de contactos, entre otros) como **categóricos** (profesión, estado civil, nivel educativo, tipo de vivienda, canal de contacto, mes de contacto, etc.).
+
+La variable objetivo es **binaria**: indica si el cliente **aceptó (yes)** o **rechazó (no)** suscribirse a un depósito a plazo luego de la campaña de marketing. Este problema se formula como una tarea de **clasificación binaria**, donde el objetivo es predecir la propensión del cliente a aceptar la oferta bancaria en base a sus características sociodemográficas y al historial de interacciones con el banco.
+
+## Justificación para el uso de árboles de decisión
+
+La elección de este conjunto de datos es especialmente adecuada para aplicar **árboles de decisión** y métodos derivados (Random Forests, Gradient Boosted Trees), debido a:
+
+1.  **Mezcla de variables**: los árboles pueden manejar de manera natural tanto predictores numéricos como categóricos sin requerir transformaciones complejas.
+2.  **Relaciones no lineales y reglas complejas**: la decisión de un cliente no depende de una regla simple (ej., "si edad \> 30, entonces sí"), sino de la interacción entre múltiples factores. Los árboles permiten modelar estas interacciones mediante divisiones jerárquicas.
+3.  **Interpretabilidad**: en un contexto bancario, es valioso explicar por qué un modelo predice que un cliente aceptará o no la campaña. Los árboles permiten obtener reglas claras y comprensibles.
+4.  **Escalabilidad**: el dataset tiene un tamaño lo suficientemente grande para evaluar el desempeño de modelos complejos, pero no excesivo como para impedir un entrenamiento eficiente.
+
+En resumen, este conjunto de datos no solo plantea un problema realista e importante de clasificación binaria, sino que también se ajusta adecuadamente a las capacidades de los árboles de decisión, permitiendo explorar tanto sus poderes predictivo y capacidades interpretativas.
+
+```{r}
+
+
+
+
+```
