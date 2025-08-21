@@ -133,34 +133,35 @@ arbol_basico <- rpart(
   method = "class"
 )
 ```
-#### Hiperparámetros por defecto de `rpart`
 
-- **`minsplit = 20`**  
-  Un nodo debe tener **al menos 20** observaciones para que se intente un split. Limita la fragmentación temprana y reduce el sobreajuste en nodos muy chicos.
+### Hiperparámetros por defecto de `rpart`
 
-- **`minbucket = round(minsplit/3)` → ~7**  
-  Tamaño mínimo de **cada hoja**. Con el valor por defecto de `minsplit`, cada hoja terminal debe tener ~7 observaciones. Evita hojas ínfimas e inestables.
+-   **`minsplit = 20`**\
+    Un nodo debe tener **al menos 20** observaciones para que se intente un split. Limita la fragmentación temprana y reduce el sobreajuste en nodos muy chicos.
 
-- **`cp = 0.01`** (complexity parameter)  
-  Solo se aceptan splits que reduzcan el error relativo **≥ 1%**. Favorece árboles más chicos y acelera el ajuste. Luego se genera la secuencia de podas según `cp`.
+-   **`minbucket = round(minsplit/3)` → \~7**\
+    Tamaño mínimo de **cada hoja**. Con el valor por defecto de `minsplit`, cada hoja terminal debe tener \~7 observaciones. Evita hojas ínfimas e inestables.
 
-- **`xval = 10`**  
-  **Validación cruzada 10-fold interna** para estimar el error y elegir el nivel de poda (en la tabla de `cp`).
+-   **`cp = 0.01`** (complexity parameter)\
+    Solo se aceptan splits que reduzcan el error relativo **≥ 1%**. Favorece árboles más chicos y acelera el ajuste. Luego se genera la secuencia de podas según `cp`.
 
-- **`maxdepth = 30`**  
-  Profundidad máxima muy alta (prácticamente sin tope en la práctica). El control real de complejidad lo imponen `cp`, `minsplit` y `minbucket`.
+-   **`xval = 10`**\
+    **Validación cruzada 10-fold interna** para estimar el error y elegir el nivel de poda (en la tabla de `cp`).
+
+-   **`maxdepth = 30`**\
+    Profundidad máxima muy alta (prácticamente sin tope en la práctica). El control real de complejidad lo imponen `cp`, `minsplit` y `minbucket`.
 
 - **`maxcompete = 4`**  
   Guarda hasta **4 splits competidores** (formas alternativas de hacer un split) por nodo (no afecta el ajuste; es metadato útil para inspección).
 
-- **`maxsurrogate = 5`**  
-  Guarda hasta **5 variables sustitutas** por nodo para manejar **valores faltantes**.
+-   **`maxsurrogate = 5`**\
+    Guarda hasta **5 variables sustitutas** por nodo para manejar **valores faltantes**.
 
-- **`usesurrogate = 2`**  
-  Si falta la variable del split principal, **usa surrogates en orden**; si tampoco están disponibles, envía el caso por la **rama mayoritaria**.
+-   **`usesurrogate = 2`**\
+    Si falta la variable del split principal, **usa surrogates en orden**; si tampoco están disponibles, envía el caso por la **rama mayoritaria**.
 
-- **`surrogatestyle = 0`**  
-  El “mejor” surrogate se elige por **número total de aciertos** (penaliza variables con muchos NA).
+-   **`surrogatestyle = 0`**\
+    El “mejor” surrogate se elige por **número total de aciertos** (penaliza variables con muchos NA).
 
 - (Clasificación) 
   - **split = "gini"**: Los cortes minimizan la impureza Gini
@@ -176,21 +177,23 @@ rpart.plot(arbol_basico, type = 2, extra = 106, box.palette = "GnBu")
 
 **Altura observada:** 7 niveles.
 
-1) **Raíz — `duration < 477 s`**  
-   Divide “llamadas cortas” vs “largas”. Es el corte más informativo: las cortas concentran **NO**, las largas elevan la chance de **YES**.
+1)  **Raíz — `duration < 477 s`**\
+    Divide “llamadas cortas” vs “largas”. Es el corte más informativo: las cortas concentran **NO**, las largas elevan la chance de **YES**.
 
-2) **Rama izquierda (`duration < 477`)**  
-   - Siguientes cortes: **`poutcome`** (resultados previos de campaña), **`month`** y umbrales más bajos de **`duration`** (≈ 180 s).  
-   - Interpretación: **llamadas muy cortas** y **sin buen antecedente** tienden a **NO**. Los ajustes con `month` refinan pequeños subgrupos.
+2)  **Rama izquierda (`duration < 477`)**
 
-3) **Rama derecha (`duration ≥ 477`)**  
-   - Segundo umbral de **`duration`**: **≈ 765 s** separa **llamadas largas** (alta probabilidad de **YES**) de las **intermedias**.  
-   - En la franja intermedia, la decisión se afina con **`job`**, **`marital`**, y en menor medida **`month/day`**:
-     - Ocupaciones no profesionales y `marital = married` empujan a **NO**.  
-     - Ocupaciones profesionales/servicios y otros estados civiles elevan la chance de **YES**.
+    -   Siguientes cortes: **`poutcome`** (resultados previos de campaña), **`month`** y umbrales más bajos de **`duration`** (≈ 180 s).\
+    -   Interpretación: **llamadas muy cortas** y **sin buen antecedente** tienden a **NO**. Los ajustes con `month` refinan pequeños subgrupos.
 
+3)  **Rama derecha (`duration ≥ 477`)**
 
-## 4. Evaluación del árbol de decisión básico
+    -   Segundo umbral de **`duration`**: **≈ 765 s** separa **llamadas largas** (alta probabilidad de **YES**) de las **intermedias**.\
+    -   En la franja intermedia, la decisión se afina con **`job`**, **`marital`**, y en menor medida **`month/day`**:
+        -   Ocupaciones no profesionales y `marital = married` empujan a **NO**.\
+        -   Ocupaciones profesionales/servicios y otros estados civiles elevan la chance de **YES**.
+
+## Sección 4: Evaluación del árbol de decisión básico
+
 ```{r}
 # Normalización de niveles en los tres splits
 for (nm in c("entrenamiento", "validacion", "testeo")) {
@@ -289,47 +292,247 @@ plot(roc_curve, lwd = 2, main = "Curva ROC — Árbol básico (Test)")
 abline(a = 0, b = 1, lty = 2)
 ```
 
-### Interpretación de resultados
+## Sección 5: Interpretación de resultados
 
-Al evaluar el árbol de decisión básico en el conjunto de testeo se observa
-que el modelo alcanza un **accuracy de aproximadamente 92%**, un valor
-elevado y aparentemente satisfactorio a primera vista. Sin embargo, al
-analizar con mayor detalle la matriz de confusión se advierte que este buen
-desempeño global está muy influido por el **desbalance de clases**: la
-mayoría de los clientes pertenece a la clase negativa (“no”), por lo que un
-modelo que siempre predijera “no” alcanzaría un **No Information Rate
-(NIR) del 90%**. Esto significa que la mejora real sobre una estrategia
-trivial es más reducida de lo que sugiere el valor bruto del accuracy, e
-incluso la prueba de significancia muestra que la diferencia respecto al NIR
-no es concluyente al 5% de significancia.
+Al evaluar el árbol de decisión básico en el conjunto de testeo se observa que el modelo alcanza un **accuracy de aproximadamente 92%**, un valor elevado y aparentemente satisfactorio a primera vista. Sin embargo, al analizar con mayor detalle la matriz de confusión se advierte que este buen desempeño global está muy influido por el **desbalance de clases**: la mayoría de los clientes pertenece a la clase negativa (“no”), por lo que un modelo que siempre predijera “no” alcanzaría un **No Information Rate (NIR) del 90%**. Esto significa que la mejora real sobre una estrategia trivial es más reducida de lo que sugiere el valor bruto del accuracy, e incluso la prueba de significancia muestra que la diferencia respecto al NIR no es concluyente al 5% de significancia.
 
-La interpretación cambia si se examinan otras métricas específicas de la
-clase positiva. La **precisión (precision)** alcanza un 64%, lo que indica
-que cuando el modelo se arriesga a predecir que un cliente aceptará el
-depósito (“yes”), tiene más de la mitad de probabilidades de estar en lo
-cierto. Sin embargo, la **sensibilidad (recall)** es mucho más baja, alrededor
-de 41%, lo que significa que el árbol deja escapar a más de la mitad de los
-clientes que efectivamente aceptan la oferta. Esto se traduce en un número
-importante de falsos negativos (39 en el testeo), lo que podría ser
-problemático en un contexto de marketing donde detectar a los posibles
-clientes interesados suele ser más importante que evitar falsos positivos. El
-**F1-score**, que combina precisión y recall en una sola medida, queda en
-torno a 0.50, lo que confirma un equilibrio modesto y refleja la dificultad
-del modelo para captar de manera consistente la clase minoritaria.
+La interpretación cambia si se examinan otras métricas específicas de la clase positiva. La **precisión (precision)** alcanza un 64%, lo que indica que cuando el modelo se arriesga a predecir que un cliente aceptará el depósito (“yes”), tiene más de la mitad de probabilidades de estar en lo cierto. Sin embargo, la **sensibilidad (recall)** es mucho más baja, alrededor de 41%, lo que significa que el árbol deja escapar a más de la mitad de los clientes que efectivamente aceptan la oferta. Esto se traduce en un número importante de falsos negativos (39 en el testeo), lo que podría ser problemático en un contexto de marketing donde detectar a los posibles clientes interesados suele ser más importante que evitar falsos positivos. El **F1-score**, que combina precisión y recall en una sola medida, queda en torno a 0.50, lo que confirma un equilibrio modesto y refleja la dificultad del modelo para captar de manera consistente la clase minoritaria.
 
-En contraste, la **especificidad del modelo es muy alta (97.5%)**, lo cual
-significa que el árbol distingue muy bien a los clientes que no contratarán
-el depósito, cometiendo muy pocos falsos positivos. Esta asimetría entre
-sensibilidad y especificidad está en línea con lo que se observa en la prueba
-de McNemar, que arroja un p-valor significativo indicando que los errores
-no se distribuyen de manera balanceada: el modelo tiende claramente a
-equivocarse más en los positivos que en los negativos.
+En contraste, la **especificidad del modelo es muy alta (97.5%)**, lo cual significa que el árbol distingue muy bien a los clientes que no contratarán el depósito, cometiendo muy pocos falsos positivos. Esta asimetría entre sensibilidad y especificidad está en línea con lo que se observa en la prueba de McNemar, que arroja un p-valor significativo indicando que los errores no se distribuyen de manera balanceada: el modelo tiende claramente a equivocarse más en los positivos que en los negativos.
 
-Finalmente, la **curva ROC y el AUC confirman la existencia de señal
-predictiva**. El área bajo la curva se ubica en 0.79, lo que indica que, si se
-toma al azar un cliente que aceptó y uno que rechazó la oferta, en casi ocho
-de cada diez casos el modelo asigna una probabilidad mayor al cliente
-positivo que al negativo. Este valor refleja que, más allá del umbral de
-decisión fijo que usa `rpart` (basado en la mayoría de la hoja, equivalente a
-0.5), las probabilidades generadas contienen información útil y podrían
-aprovecharse para mejorar el recall ajustando el umbral de clasificación.
+Finalmente, la **curva ROC y el AUC confirman la existencia de señal predictiva**. El área bajo la curva se ubica en 0.79, lo que indica que, si se toma al azar un cliente que aceptó y uno que rechazó la oferta, en casi ocho de cada diez casos el modelo asigna una probabilidad mayor al cliente positivo que al negativo. Este valor refleja que, más allá del umbral de decisión fijo que usa `rpart` (basado en la mayoría de la hoja, equivalente a 0.5), las probabilidades generadas contienen información útil y podrían aprovecharse para mejorar el recall ajustando el umbral de clasificación.
+
+## Sección 6: Análisis del impacto de etiquetas corruptas
+
+
+
+```{r message=FALSE, warning=FALSE}
+
+# Función auxiliar: invierte etiquetas binaras (no/yes) en una fracción dada
+flip_labels <- function(df, prop) {
+  stopifnot("y" %in% names(df))
+  y <- df$y
+  if (!is.factor(y)) y <- factor(y)
+  if (all(c("no", "yes") %in% levels(y))) {
+    y <- factor(y, levels = c("no", "yes"))
+  }
+  n <- nrow(df)
+  n_flip <- floor(n * prop)
+  if (n_flip <= 0) return(list(data = df, flipped_idx = integer(0)))
+  idx <- sample(seq_len(n), size = n_flip, replace = FALSE)
+  y_int <- as.integer(y)              # no -> 1, yes -> 2
+  y_int[idx] <- 3 - y_int[idx]        # 1 <-> 2
+  y_new <- factor(levels(y)[y_int], levels = levels(y))
+  df$y <- y_new
+  list(data = df, flipped_idx = idx)
+}
+  
+# Semillas para reproducibilidad de las 6 versiones
+set.seed(20250819)
+
+# Asegurar existencia del conjunto de entrenamiento y conservar copia intacta
+stopifnot(exists("entrenamiento"))
+entrenamiento_original <- entrenamiento
+
+# Generación de versiones con porcentajes solicitados
+v1 <- flip_labels(entrenamiento_original, 0.05); entrenamiento_v1 <- v1$data; idx_flip_v1 <- v1$flipped_idx
+v2 <- flip_labels(entrenamiento_original, 0.10); entrenamiento_v2 <- v2$data; idx_flip_v2 <- v2$flipped_idx
+v3 <- flip_labels(entrenamiento_original, 0.15); entrenamiento_v3 <- v3$data; idx_flip_v3 <- v3$flipped_idx
+v4 <- flip_labels(entrenamiento_original, 0.20); entrenamiento_v4 <- v4$data; idx_flip_v4 <- v4$flipped_idx
+v5 <- flip_labels(entrenamiento_original, 0.25); entrenamiento_v5 <- v5$data; idx_flip_v5 <- v5$flipped_idx
+v6 <- flip_labels(entrenamiento_original, 0.30); entrenamiento_v6 <- v6$data; idx_flip_v6 <- v6$flipped_idx
+```
+
+```{r message=FALSE, warning=FALSE}
+
+# Utilidades de tuning y evaluación -------------------------------------------
+
+# Calcula métricas (incluye AUC) en un dataset dado un modelo rpart
+eval_metrics <- function(model, data_split, split_name = "") {
+  stopifnot("y" %in% names(data_split))
+  y_true <- data_split$y
+  if (!is.factor(y_true)) y_true <- factor(y_true, levels = c("no","yes"))
+  prob_mat <- predict(model, newdata = data_split, type = "prob")
+  pos_col <- if ("yes" %in% colnames(prob_mat)) "yes" else tail(colnames(prob_mat), 1)
+  prob_pos <- prob_mat[, pos_col]
+  roc_obj <- pROC::roc(y_true, prob_pos, levels = c("no","yes"), direction = "<")
+  auc_val <- as.numeric(pROC::auc(roc_obj))
+  # umbral 0.5 para métricas clásicas
+  pred_class <- factor(ifelse(prob_pos >= 0.5, "yes", "no"), levels = c("no","yes"))
+  cm <- caret::confusionMatrix(pred_class, y_true, positive = "yes")
+  data.frame(
+    split = split_name,
+    Accuracy = as.numeric(cm$overall["Accuracy"]),
+    Precision = as.numeric(cm$byClass["Precision"]),
+    Recall = as.numeric(cm$byClass["Recall"]),
+    F1 = as.numeric(cm$byClass["F1"]),
+    AUC = auc_val,
+    stringsAsFactors = FALSE
+  )
+}
+
+# Tunea rpart por AUC en validación; retorna mejor modelo y resultados del grid
+tune_rpart_auc <- function(train_df, valid_df, grid = NULL) {
+  if (is.null(grid)) {
+    grid <- expand.grid(
+      maxdepth = c(3, 4, 5, 6, 8),
+      minsplit = c(20, 50, 100),
+      minbucket = c(5, 10, 20, 30)
+    )
+    grid <- subset(grid, minbucket <= floor(minsplit / 2))
+  }
+
+  best_auc <- -Inf
+  best_fit <- NULL
+  grid$AUC_valid <- NA_real_
+
+  for (i in seq_len(nrow(grid))) {
+    ctrl <- rpart.control(
+      cp = 0,
+      xval = 0,
+      maxdepth = grid$maxdepth[i],
+      minsplit = grid$minsplit[i],
+      minbucket = grid$minbucket[i]
+    )
+    fit <- rpart(y ~ ., data = train_df, method = "class", control = ctrl)
+    m <- eval_metrics(fit, valid_df, split_name = "valid")
+    grid$AUC_valid[i] <- m$AUC[1]
+    if (!is.na(grid$AUC_valid[i]) && grid$AUC_valid[i] > best_auc) {
+      best_auc <- grid$AUC_valid[i]
+      best_fit <- fit
+    }
+  }
+  list(best_model = best_fit, results = grid)
+}
+
+# Asegurar factores consistentes de 'y' en splits (si no se hizo aún)
+for (nm in c("entrenamiento_original", "validacion", "testeo",
+             "entrenamiento_v1", "entrenamiento_v2", "entrenamiento_v3",
+             "entrenamiento_v4", "entrenamiento_v5", "entrenamiento_v6")) {
+  if (exists(nm)) {
+    tmp <- get(nm)
+    if (!is.factor(tmp$y)) tmp$y <- factor(tmp$y)
+    if (all(c("no", "yes") %in% levels(tmp$y))) {
+      tmp$y <- factor(tmp$y, levels = c("no", "yes"))
+    }
+    assign(nm, tmp)
+  }
+}
+
+# Baseline: árbol optimizado del punto 5 (si no existe, lo calculamos aquí)
+if (!exists("mejor_arbol_p5")) {
+  tune_base <- tune_rpart_auc(entrenamiento_original, validacion)
+  mejor_arbol_p5 <- tune_base$best_model
+  grid_base <- tune_base$results
+}
+
+# Evaluación de baseline en testeo
+baseline_test <- eval_metrics(mejor_arbol_p5, testeo, split_name = "test")
+
+# Tuning y evaluación para las seis versiones ---------------------------------
+versiones <- list(
+  V1 = entrenamiento_v1,
+  V2 = entrenamiento_v2,
+  V3 = entrenamiento_v3,
+  V4 = entrenamiento_v4,
+  V5 = entrenamiento_v5,
+  V6 = entrenamiento_v6
+)
+
+resultados_valid <- list()
+resultados_test <- list()
+mejores_modelos <- list()
+
+for (nm in names(versiones)) {
+  tune_res <- tune_rpart_auc(versiones[[nm]], validacion)
+  mejores_modelos[[nm]] <- tune_res$best_model
+  resultados_valid[[nm]] <- tune_res$results
+  resultados_test[[nm]] <- eval_metrics(tune_res$best_model, testeo, split_name = "test")
+}
+
+# Resumen comparativo en testeo (AUC y métricas)
+tabla_test <- do.call(rbind, c(
+  list(Baseline = baseline_test),
+  lapply(names(resultados_test), function(nm) {
+    df <- resultados_test[[nm]]
+    rownames(df) <- nm
+    df
+  })
+))
+
+knitr::kable(tabla_test, digits = 4,
+             caption = "Rendimiento en test del mejor árbol por versión vs baseline (punto 5)")
+
+```
+
+### Análisis de desempeño y cambios de hiperparámetros con etiquetas corruptas
+
+El experimento muestra cómo el rendimiento del árbol de decisión se degrada al aumentar el porcentaje de etiquetas corruptas en el conjunto de entrenamiento.
+
+Tendencia general:
+
+Con 5–15% de etiquetas corruptas, la performance cae suavemente: la AUC baja de 0.87 (baseline) a valores cercanos a 0.84–0.85, con variaciones menores en F1 y Recall.
+
+A partir del 20% aparece un punto de quiebre, con un descenso acelerado de la AUC (0.78) y pérdidas notorias en precisión.
+
+El 30% de ruido marca un deterioro fuerte: la precisión se desploma (0.27) y el F1 cae al mínimo, aunque el Recall sube artificialmente a 0.50 porque el modelo clasifica más positivos de forma errónea.
+
+En síntesis, la degradación no es lineal: existe un umbral crítico alrededor del 20–25% donde el modelo se vuelve poco confiable.
+
+### Gráfico 1: AUC vs. Porcentaje de etiquetas corruptas
+```{r}
+library(ggplot2)
+
+df_plot <- data.frame(
+  Corrupcion = c(0,5,10,15,20,25,30),
+  AUC = c(0.8714,0.8597,0.8366,0.8449,0.7826,0.8327,0.8156)
+)
+
+ggplot(df_plot, aes(x=Corrupcion, y=AUC)) +
+  geom_line(color="steelblue", linewidth=1) +
+  geom_point(linewidth=3, color="darkred") +
+  labs(title="AUC en test vs % de etiquetas corruptas",
+       x="% de etiquetas corruptas", y="AUC") +
+  theme_minimal()
+```
+
+#### Explicación: 
+La curva es relativamente estable hasta 15%, luego se observa una caída brusca. Esto confirma el carácter no lineal de la degradación.
+
+### Gráfico 2: Accuracy, Precision, Recall y F1
+
+```{r}
+df_plot2 <- data.frame(
+  Corrupcion = rep(c(0,5,10,15,20,25,30), each=4),
+  Metrica = rep(c("Accuracy","Precision","Recall","F1"), times=7),
+  Valor = c(
+    0.9099,0.5556,0.3788,0.4505,
+    0.9055,0.5208,0.3788,0.4386,
+    0.9055,0.5192,0.4091,0.4576,
+    0.9010,0.4909,0.4091,0.4463,
+    0.8922,0.4407,0.3939,0.4160,
+    0.8892,0.4262,0.3939,0.4094,
+    0.8198,0.2705,0.5000,0.3511
+  )
+)
+
+ggplot(df_plot2, aes(x=Corrupcion, y=Valor, color=Metrica)) +
+  geom_line(linewidth=1) + geom_point(size=2) +
+  labs(title="Evolución de métricas con etiquetas corruptas",
+       x="% de etiquetas corruptas", y="Valor de la métrica") +
+  theme_minimal()
+
+```
+
+#### Explicación:
+- Accuracy y Precision caen progresivamente, con fuerte desplome al 30%.
+- Recall se mantiene relativamente estable y sube en V6, pero es un aumento engañoso, fruto de más falsos positivos.
+- F1 sigue la caída general y muestra el impacto acumulado.
+
+#### Hiperparámetros
+
+Durante el tuning, los hiperparámetros óptimos (profundidad, minsplit, minbucket) no mostraron un patrón claro de ajuste al crecer el ruido. En la mayoría de los casos se mantuvo la preferencia por árboles poco profundos y con minsplit moderado. Esto sugiere que la robustez del modelo no proviene de cambios en la estructura, sino de la calidad de los datos.
+
+
+
+## Conclusiones
