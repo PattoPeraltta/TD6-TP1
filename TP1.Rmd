@@ -1,3 +1,8 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
 ```{r message=FALSE, warning=FALSE}
 # Librerias
 library(readr)
@@ -146,7 +151,7 @@ arbol_basico <- rpart(
   Profundidad máxima muy alta (prácticamente sin tope en la práctica). El control real de complejidad lo imponen `cp`, `minsplit` y `minbucket`.
 
 - **`maxcompete = 4`**  
-  Guarda hasta **4 splits competidores** por nodo (no afecta el ajuste; es metadato útil para inspección).
+  Guarda hasta **4 splits competidores** (formas alternativas de hacer un split) por nodo (no afecta el ajuste; es metadato útil para inspección).
 
 - **`maxsurrogate = 5`**  
   Guarda hasta **5 variables sustitutas** por nodo para manejar **valores faltantes**.
@@ -157,9 +162,10 @@ arbol_basico <- rpart(
 - **`surrogatestyle = 0`**  
   El “mejor” surrogate se elige por **número total de aciertos** (penaliza variables con muchos NA).
 
-- (**Clasificación**) **`split = "gini"`**, **`prior`** proporcionales a las **frecuencias de clase observadas** y **`loss`** con costo uniforme de error (0 en la diagonal y 1 fuera de la diagonal).  
-  Implica que los cortes minimizan **impureza Gini**, asumiendo las prevalencias del dataset y costos de clasificación iguales, salvo que se especifiquen otros.
-
+- (Clasificación) 
+  - **split = "gini"**: Los cortes minimizan la impureza Gini
+  - **prior**: Por defecto, proporcionales a las frecuencias de clase observadas en el dataset
+  - **loss**: Matriz de costos uniforme (0 en la diagonal, 1 fuera de la diagonal)
 
 ```{r message=FALSE, warning=FALSE}
 library(rpart.plot)
@@ -168,7 +174,7 @@ rpart.plot(arbol_basico, type = 2, extra = 106, box.palette = "GnBu")
 
 ```
 
-**Altura observada:** 5 niveles (raíz + 4 divisiones).  
+**Altura observada:** 7 niveles.
 
 1) **Raíz — `duration < 477 s`**  
    Divide “llamadas cortas” vs “largas”. Es el corte más informativo: las cortas concentran **NO**, las largas elevan la chance de **YES**.
