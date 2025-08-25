@@ -562,7 +562,7 @@ roc_data <- data.frame(
 
 # Gráfico comparativo de curvas ROC
 ggplot(roc_data, aes(x = FPR, y = TPR, color = Modelo)) +
-  geom_line(linewidth = 1) +
+  geom_line() +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray") +
   labs(
     title = "Comparación de curvas ROC: Árbol básico vs Optimizado",
@@ -608,10 +608,16 @@ Finalmente, la **curva ROC y el AUC confirman la existencia de señal predictiva
 
 ## Sección 6: Análisis del impacto de etiquetas corruptas
 
+En esta sección vamos a analizar cómo la presencia de etiquetas corruptas en el conjunto de entrenamiento afecta el rendimiento del modelo de árbol de decisión. Para esto, **reutilizaremos las funciones de optimización desarrolladas en la Sección 4**, específicamente:
 
+- **`evaluar_auc`**: Para evaluar modelos usando AUC-ROC
+- **`grid_hiperparametros`**: El mismo grid de hiperparámetros optimizado
+- **`resultados_optimizacion`**: La estructura de resultados ya establecida
+
+### Generación de conjuntos con etiquetas corruptas
 
 ```{r message=FALSE, warning=FALSE}
-# Función auxiliar: invierte etiquetas binaras (no/yes) en una fracción dada
+# Función auxiliar: invierte etiquetas binarias (no/yes) en una fracción dada
 flip_labels <- function(df, prop) {
   stopifnot("y" %in% names(df))
   y <- df$y
@@ -639,94 +645,28 @@ set.seed(20250819)
 stopifnot(exists("entrenamiento"))
 entrenamiento_original <- entrenamiento
 
-# Generación de versiones con porcentajes solicitados
-v1 <- flip_labels(entrenamiento_original, 0.05)
-entrenamiento_v1 <- v1$data
-idx_flip_v1 <- v1$flipped_idx
-v2 <- flip_labels(entrenamiento_original, 0.10)
-entrenamiento_v2 <- v2$data
-idx_flip_v2 <- v2$flipped_idx
-v3 <- flip_labels(entrenamiento_original, 0.15)
-entrenamiento_v3 <- v3$data
-idx_flip_v3 <- v3$flipped_idx
-v4 <- flip_labels(entrenamiento_original, 0.20)
-entrenamiento_v4 <- v4$data
-idx_flip_v4 <- v4$flipped_idx
-v5 <- flip_labels(entrenamiento_original, 0.25)
-entrenamiento_v5 <- v5$data
-idx_flip_v5 <- v5$flipped_idx
-v6 <- flip_labels(entrenamiento_original, 0.30)
-entrenamiento_v6 <- v6$data
-idx_flip_v6 <- v6$flipped_idx
-```
+# Generación de versiones con porcentajes solicitados (5%, 10%, 15%, 20%, 25%, 30%)
+porcentajes_corrupcion <- c(0.05, 0.10, 0.15, 0.20, 0.25, 0.30)
+versiones_corruptas <- list()
 
-```{r message=FALSE, warning=FALSE}
-# Utilidades de tuning y evaluación -------------------------------------------
-
-# Calcula métricas (incluye AUC) en un dataset dado un modelo rpart
-eval_metrics <- function(model, data_split, split_name = "") {
-  stopifnot("y" %in% names(data_split))
-  y_true <- data_split$y
-  if (!is.factor(y_true)) y_true <- factor(y_true, levels = c("no", "yes"))
-  prob_mat <- predict(model, newdata = data_split, type = "prob")
-  pos_col <- if ("yes" %in% colnames(prob_mat)) "yes" else tail(colnames(prob_mat), 1)
-  prob_pos <- prob_mat[, pos_col]
-  roc_obj <- pROC::roc(y_true, prob_pos, levels = c("no", "yes"), direction = "<")
-  auc_val <- as.numeric(pROC::auc(roc_obj))
-  # umbral 0.5 para métricas clásicas
-  pred_class <- factor(ifelse(prob_pos >= 0.5, "yes", "no"), levels = c("no", "yes"))
-  cm <- caret::confusionMatrix(pred_class, y_true, positive = "yes")
-  data.frame(
-    split = split_name,
-    Accuracy = as.numeric(cm$overall["Accuracy"]),
-    Precision = as.numeric(cm$byClass["Precision"]),
-    Recall = as.numeric(cm$byClass["Recall"]),
-    F1 = as.numeric(cm$byClass["F1"]),
-    AUC = auc_val,
-    stringsAsFactors = FALSE
+for (i in seq_along(porcentajes_corrupcion)) {
+  prop <- porcentajes_corrupcion[i]
+  version <- flip_labels(entrenamiento_original, prop)
+  versiones_corruptas[[paste0("V", i)]] <- list(
+    data = version$data,
+    porcentaje = prop * 100,
+    flipped_idx = version$flipped_idx
   )
 }
+```
 
-# Tunea rpart por AUC en validación; retorna mejor modelo y resultados del grid
-tune_rpart_auc <- function(train_df, valid_df, grid = NULL) {
-  if (is.null(grid)) {
-    grid <- expand.grid(
-      maxdepth = c(3, 4, 5, 6, 8),
-      minsplit = c(20, 50, 100),
-      minbucket = c(5, 10, 20, 30)
-    )
-    grid <- subset(grid, minbucket <= floor(minsplit / 2))
-  }
+### Reutilización de funciones de optimización de la Sección 4
 
-  best_auc <- -Inf
-  best_fit <- NULL
-  grid$AUC_valid <- NA_real_
+Ahora aplicaremos el mismo proceso de optimización que desarrollamos en la **Sección 4** para cada versión corrupta:
 
-  for (i in seq_len(nrow(grid))) {
-    ctrl <- rpart.control(
-      cp = 0,
-      xval = 0,
-      maxdepth = grid$maxdepth[i],
-      minsplit = grid$minsplit[i],
-      minbucket = grid$minbucket[i]
-    )
-    fit <- rpart(y ~ ., data = train_df, method = "class", control = ctrl)
-    m <- eval_metrics(fit, valid_df, split_name = "valid")
-    grid$AUC_valid[i] <- m$AUC[1]
-    if (!is.na(grid$AUC_valid[i]) && grid$AUC_valid[i] > best_auc) {
-      best_auc <- grid$AUC_valid[i]
-      best_fit <- fit
-    }
-  }
-  list(best_model = best_fit, results = grid)
-}
-
-# Asegurar factores consistentes de 'y' en splits (si no se hizo aún)
-for (nm in c(
-  "entrenamiento_original", "validacion", "testeo",
-  "entrenamiento_v1", "entrenamiento_v2", "entrenamiento_v3",
-  "entrenamiento_v4", "entrenamiento_v5", "entrenamiento_v6"
-)) {
+```{r message=FALSE, warning=FALSE}
+# Asegurar factores consistentes de 'y' en todos los conjuntos
+for (nm in c("entrenamiento_original", "validacion", "testeo")) {
   if (exists(nm)) {
     tmp <- get(nm)
     if (!is.factor(tmp$y)) tmp$y <- factor(tmp$y)
@@ -737,52 +677,177 @@ for (nm in c(
   }
 }
 
-# Baseline: árbol optimizado del punto 5 (si no existe, lo calculamos aquí)
-if (!exists("mejor_arbol_p5")) {
-  tune_base <- tune_rpart_auc(entrenamiento_original, validacion)
-  mejor_arbol_p5 <- tune_base$best_model
-  grid_base <- tune_base$results
+# Evaluación de baseline en testeo usando evaluar_auc
+baseline_test_auc <- evaluar_auc(mejor_arbol, testeo)
+
+# Optimización para cada versión corrupta usando el mismo enfoque de la Sección 4
+resultados_versiones <- list()
+mejores_modelos_versiones <- list()
+
+for (nm in names(versiones_corruptas)) {
+  # Aplicar la misma optimización de hiperparámetros de la Sección 4
+  resultados_temp <- data.frame(
+    maxdepth = grid_hiperparametros$maxdepth,
+    minsplit = grid_hiperparametros$minsplit,
+    minbucket = grid_hiperparametros$minbucket,
+    auc_validacion = NA_real_,
+    stringsAsFactors = FALSE
+  )
+
+  # Búsqueda exhaustiva para esta versión corrupta usando evaluar_auc
+  for (i in 1:nrow(grid_hiperparametros)) {
+    control <- rpart.control(
+      cp = 0,
+      xval = 0,
+      maxdepth = grid_hiperparametros$maxdepth[i],
+      minsplit = grid_hiperparametros$minsplit[i],
+      minbucket = grid_hiperparametros$minbucket[i]
+    )
+
+    modelo_temp <- rpart(
+      y ~ .,
+      data = versiones_corruptas[[nm]]$data,
+      method = "class",
+      control = control
+    )
+
+    resultados_temp$auc_validacion[i] <- evaluar_auc(modelo_temp, validacion)
+  }
+
+  # Encontrar mejor modelo para esta versión
+  mejor_idx_temp <- which.max(resultados_temp$auc_validacion)
+  mejor_modelo_temp <- rpart(
+    y ~ .,
+    data = versiones_corruptas[[nm]]$data,
+    method = "class",
+    control = rpart.control(
+      cp = 0,
+      xval = 0,
+      maxdepth = resultados_temp$maxdepth[mejor_idx_temp],
+      minsplit = resultados_temp$minsplit[mejor_idx_temp],
+      minbucket = resultados_temp$minbucket[mejor_idx_temp]
+    )
+  )
+
+  # Guardar resultados
+  resultados_versiones[[nm]] <- resultados_temp
+  mejores_modelos_versiones[[nm]] <- mejor_modelo_temp
 }
 
-# Evaluación de baseline en testeo
-baseline_test <- eval_metrics(mejor_arbol_p5, testeo, split_name = "test")
-
-# Tuning y evaluación para las seis versiones ---------------------------------
-versiones <- list(
-  V1 = entrenamiento_v1,
-  V2 = entrenamiento_v2,
-  V3 = entrenamiento_v3,
-  V4 = entrenamiento_v4,
-  V5 = entrenamiento_v5,
-  V6 = entrenamiento_v6
+# Evaluación comparativa en testeo
+resultados_test_comparativo <- data.frame(
+  Version = c("Baseline (0%)", paste0(" (", porcentajes_corrupcion * 100, "%)")),
+  AUC_Test = c(baseline_test_auc, sapply(mejores_modelos_versiones, function(m) evaluar_auc(m, testeo))),
+  Porcentaje_Corrupcion = c(0, porcentajes_corrupcion * 100),
+  stringsAsFactors = FALSE
 )
 
-resultados_valid <- list()
-resultados_test <- list()
-mejores_modelos <- list()
+# Agregar métricas adicionales para análisis completo
+for (i in 1:nrow(resultados_test_comparativo)) {
+  if (i == 1) {
+    modelo_actual <- mejor_arbol
+  } else {
+    modelo_actual <- mejores_modelos_versiones[[paste0("V", i - 1)]]
+  }
 
-for (nm in names(versiones)) {
-  tune_res <- tune_rpart_auc(versiones[[nm]], validacion)
-  mejores_modelos[[nm]] <- tune_res$best_model
-  resultados_valid[[nm]] <- tune_res$results
-  resultados_test[[nm]] <- eval_metrics(tune_res$best_model, testeo, split_name = "test")
+  # Calcular métricas usando el mismo enfoque de la Sección 4
+  pred_class <- predict(modelo_actual, newdata = testeo, type = "class")
+  pred_class <- factor(pred_class, levels = levels(testeo$y))
+
+  matriz_conf <- caret::confusionMatrix(pred_class, testeo$y, positive = "yes")
+
+  resultados_test_comparativo$Accuracy[i] <- as.numeric(matriz_conf$overall["Accuracy"])
+  resultados_test_comparativo$Precision[i] <- as.numeric(matriz_conf$byClass["Precision"])
+  resultados_test_comparativo$Recall[i] <- as.numeric(matriz_conf$byClass["Recall"])
+  resultados_test_comparativo$F1[i] <- as.numeric(matriz_conf$byClass["F1"])
 }
-
-# Resumen comparativo en testeo (AUC y métricas)
-tabla_test <- do.call(rbind, c(
-  list(Baseline = baseline_test),
-  lapply(names(resultados_test), function(nm) {
-    df <- resultados_test[[nm]]
-    rownames(df) <- nm
-    df
-  })
-))
-
-knitr::kable(tabla_test,
+# Mostrar resultados comparativos
+knitr::kable(resultados_test_comparativo,
   digits = 4,
-  caption = "Rendimiento en test del mejor árbol por versión vs baseline (punto 5)"
+  caption = "Rendimiento comparativo: Baseline vs Versiones con etiquetas corruptas"
 )
 ```
+### Análisis de la evolución de hiperparámetros óptimos
+
+Ahora analizaremos cómo cambian los valores de los hiperparámetros óptimos a medida que aumenta el porcentaje de etiquetas corruptas:
+
+```{r message=FALSE, warning=FALSE}
+# Extraer hiperparámetros óptimos para cada versión
+hiperparametros_optimos <- data.frame(
+  Porcentaje_Corrupcion = c(0, porcentajes_corrupcion * 100),
+  maxdepth = NA_integer_,
+  minsplit = NA_integer_,
+  minbucket = NA_integer_,
+  AUC_Validacion = NA_real_,
+  stringsAsFactors = FALSE
+)
+
+# Para el baseline (0% corrupción)
+hiperparametros_optimos$maxdepth[1] <- resultados_optimizacion$maxdepth[which.max(resultados_optimizacion$auc_validacion)]
+hiperparametros_optimos$minsplit[1] <- resultados_optimizacion$minsplit[which.max(resultados_optimizacion$auc_validacion)]
+hiperparametros_optimos$minbucket[1] <- resultados_optimizacion$minbucket[which.max(resultados_optimizacion$auc_validacion)]
+hiperparametros_optimos$AUC_Validacion[1] <- max(resultados_optimizacion$auc_validacion)
+
+# Para cada versión corrupta
+for (i in seq_along(versiones_corruptas)) {
+  nm <- paste0("V", i)
+  mejor_idx <- which.max(resultados_versiones[[nm]]$auc_validacion)
+
+  hiperparametros_optimos$maxdepth[i + 1] <- resultados_versiones[[nm]]$maxdepth[mejor_idx]
+  hiperparametros_optimos$minsplit[i + 1] <- resultados_versiones[[nm]]$minsplit[mejor_idx]
+  hiperparametros_optimos$minbucket[i + 1] <- resultados_versiones[[nm]]$minbucket[mejor_idx]
+  hiperparametros_optimos$AUC_Validacion[i + 1] <- resultados_versiones[[nm]]$auc_validacion[mejor_idx]
+}
+
+# Mostrar tabla de hiperparámetros óptimos
+knitr::kable(hiperparametros_optimos,
+  digits = 4,
+  caption = "Evolución de hiperparámetros óptimos con etiquetas corruptas"
+)
+```
+
+#### Análisis de patrones en hiperparámetros óptimos
+
+```{r message=FALSE, warning=FALSE}
+# Gráfico 3: Evolución de maxdepth óptimo
+ggplot(hiperparametros_optimos, aes(x = Porcentaje_Corrupcion, y = maxdepth)) +
+  geom_line(color = "steelblue", linewidth = 1.2) +
+  geom_point(size = 3, color = "darkred") +
+  labs(
+    title = "Evolución de maxdepth óptimo con etiquetas corruptas",
+    x = "% de etiquetas corruptas",
+    y = "maxdepth óptimo"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_y_continuous(breaks = unique(hiperparametros_optimos$maxdepth))
+
+# Gráfico 4: Evolución de minsplit óptimo
+ggplot(hiperparametros_optimos, aes(x = Porcentaje_Corrupcion, y = minsplit)) +
+  geom_line(color = "darkgreen", linewidth = 1.2) +
+  geom_point(size = 3, color = "darkred") +
+  labs(
+    title = "Evolución de minsplit óptimo con etiquetas corruptas",
+    x = "% de etiquetas corruptas",
+    y = "minsplit óptimo"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_y_continuous(breaks = unique(hiperparametros_optimos$minsplit))
+
+# Gráfico 5: Evolución de minbucket óptimo
+ggplot(hiperparametros_optimos, aes(x = Porcentaje_Corrupcion, y = minbucket)) +
+  geom_line(color = "purple", linewidth = 1.2) +
+  geom_point(size = 3, color = "darkred") +
+  labs(
+    title = "Evolución de minbucket óptimo con etiquetas corruptas",
+    x = "% de etiquetas corruptas",
+    y = "minbucket óptimo"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_y_continuous(breaks = unique(hiperparametros_optimos$minbucket))
+``` 
 
 ### Análisis de desempeño y cambios de hiperparámetros con etiquetas corruptas
 
@@ -790,13 +855,13 @@ El experimento muestra cómo el rendimiento del árbol de decisión se degrada a
 
 Tendencia general:
 
-Con 5–15% de etiquetas corruptas, la performance cae suavemente: la AUC baja de 0.87 (baseline) a valores cercanos a 0.84–0.85, con variaciones menores en F1 y Recall.
+Con 5-15% de etiquetas corruptas, la performance cae suavemente: la AUC baja de 0.87 (baseline) a valores cercanos a 0.84-0.85, con variaciones menores en F1 y Recall.
 
 A partir del 20% aparece un punto de quiebre, con un descenso acelerado de la AUC (0.78) y pérdidas notorias en precisión.
 
 El 30% de ruido marca un deterioro fuerte: la precisión se desploma (0.27) y el F1 cae al mínimo, aunque el Recall sube artificialmente a 0.50 porque el modelo clasifica más positivos de forma errónea.
 
-En síntesis, la degradación no es lineal: existe un umbral crítico alrededor del 20–25% donde el modelo se vuelve poco confiable.
+En síntesis, la degradación no es lineal: existe un umbral crítico alrededor del 20-25% donde el modelo se vuelve poco confiable.
 
 ### Gráfico 1: AUC vs. Porcentaje de etiquetas corruptas
 ```{r}
@@ -808,7 +873,7 @@ df_plot <- data.frame(
 )
 
 ggplot(df_plot, aes(x = Corrupcion, y = AUC)) +
-  geom_line(color = "steelblue", linewidth = 1) +
+  geom_line(color = "steelblue") +
   geom_point(linewidth = 3, color = "darkred") +
   labs(
     title = "AUC en test vs % de etiquetas corruptas",
@@ -838,7 +903,7 @@ df_plot2 <- data.frame(
 )
 
 ggplot(df_plot2, aes(x = Corrupcion, y = Valor, color = Metrica)) +
-  geom_line(linewidth = 1) +
+  geom_line() +
   geom_point(size = 2) +
   labs(
     title = "Evolución de métricas con etiquetas corruptas",
@@ -854,8 +919,19 @@ ggplot(df_plot2, aes(x = Corrupcion, y = Valor, color = Metrica)) +
 
 #### Hiperparámetros
 
-Durante el tuning, los hiperparámetros óptimos (profundidad, minsplit, minbucket) no mostraron un patrón claro de ajuste al crecer el ruido. En la mayoría de los casos se mantuvo la preferencia por árboles poco profundos y con minsplit moderado. Esto sugiere que la robustez del modelo no proviene de cambios en la estructura, sino de la calidad de los datos.
+Con el análisis detallado de hiperparámetros óptimos implementado anteriormente, ahora podemos observar cómo cambian los valores de `maxdepth`, `minsplit` y `minbucket` a medida que aumenta el porcentaje de etiquetas corruptas. 
+
+Los gráficos de evolución muestran si existe un patrón sistemático en la adaptación de la estructura del árbol al ruido en los datos.
+
+Esto nos permite determinar si la robustez del modelo proviene de cambios adaptativos en la estructura del árbol o si se mantiene constante a pesar del deterioro en la calidad de los datos de entrenamiento.
 
 
 
 ## Conclusiones
+
+El análisis realizado nos permitió evaluar de manera integral el desempeño de los árboles de decisión en un problema de clasificación binaria con un dataset de gran tamaño y características mixtas (variables numéricas y categóricas). A lo largo de las distintas etapas observamos lo siguiente:
+- Árbol básico vs. árbol optimizado: el modelo inicial construido con parámetros por defecto mostró un rendimiento aceptable, pero al ajustar los hiperparámetros (maxdepth, minsplit y minbucket) se obtuvieron mejoras significativas en AUC-ROC y métricas asociadas. Esto confirma la importancia de una búsqueda sistemática de hiperparámetros en modelos de árboles.
+- Interpretabilidad y variables relevantes: el árbol optimizado permitió identificar claramente las variables con mayor peso predictivo, lo cual constituye una de las principales ventajas de los árboles de decisión frente a otros modelos más complejos y de “caja negra”.
+- Impacto de etiquetas corruptas: la simulación de ruido en la variable objetivo mostró que el rendimiento del modelo se degrada a medida que aumenta el porcentaje de observaciones mal etiquetadas. La caída no fue lineal: se detectaron puntos críticos a partir de niveles intermedios de corrupción (20-25%) donde la performance empeoró más drásticamente. Esto refleja la sensibilidad de los árboles a la calidad de las etiquetas y la importancia de contar con procesos de recolección y validación confiables de los datos.
+- Reflexión general: los árboles de decisión resultan efectivos para este problema, al balancear interpretabilidad y capacidad predictiva. Sin embargo, su sensibilidad al ruido y a la selección de hiperparámetros sugiere que en escenarios reales podría ser beneficioso complementar este enfoque con métodos más robustos, como ensembles (Random Forest, Gradient Boosting) o técnicas de preprocesamiento orientadas a la detección y corrección de errores de etiquetado.
+El trabajo puso en evidencia tanto las fortalezas como las limitaciones de los árboles de decisión, ofreciendo un panorama completo sobre su aplicabilidad y destacando posibles líneas de mejora en futuros análisis.
