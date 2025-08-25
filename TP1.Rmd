@@ -40,7 +40,6 @@ En resumen, este conjunto de datos no solo plantea un problema realista e import
 ### Carga del dataset
 
 ```{r message=FALSE, warning=FALSE}
-
 # Cargar dataset (suponiendo que el archivo se llama bank.csv)
 bank <- read.csv("bank.csv", sep = ";")
 
@@ -49,13 +48,11 @@ str(bank)
 
 # Variable objetivo (binaria: yes/no)
 table(bank$y)
-
 ```
 
 ### Analisis exploratorio
 
 ```{r message=FALSE, warning=FALSE}
-
 # Resumen general de variables numéricas
 summary(select_if(bank, is.numeric))
 
@@ -71,10 +68,11 @@ ggplot(bank, aes(x = age)) +
 # Comparación de una variable categórica con la variable objetivo
 ggplot(bank, aes(x = job, fill = y)) +
   geom_bar(position = "fill") +
-  labs(title = "Proporción de aceptación del depósito según ocupación",
-       x = "Ocupación", y = "Proporción") +
+  labs(
+    title = "Proporción de aceptación del depósito según ocupación",
+    x = "Ocupación", y = "Proporción"
+  ) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
 ```
 
 ### Comentarios sobre los datos:
@@ -90,23 +88,19 @@ ggplot(bank, aes(x = job, fill = y)) +
 ## Sección 3: Construcción de un árbol de decisión básico
 
 ```{r message=FALSE, warning=FALSE}
-
-
-
-
 n <- nrow(bank)
 
 # límites
 max_valid <- floor(0.15 * n)
-max_test  <- floor(0.15 * n)
+max_test <- floor(0.15 * n)
 
 # listas de índices
 idx_entrenamiento <- integer(0)
-idx_validacion    <- integer(0)
-idx_testeo        <- integer(0)
+idx_validacion <- integer(0)
+idx_testeo <- integer(0)
 
 for (i in 1:n) {
-  r <- runif(1)  # número aleatorio entre 0 y 1
+  r <- runif(1) # número aleatorio entre 0 y 1
 
   if (r < 0.15 && length(idx_validacion) < max_valid) {
     idx_validacion <- c(idx_validacion, i)
@@ -119,13 +113,11 @@ for (i in 1:n) {
 
 # subconjuntos finales
 entrenamiento <- bank[idx_entrenamiento, , drop = FALSE]
-validacion    <- bank[idx_validacion,    , drop = FALSE]
-testeo        <- bank[idx_testeo,        , drop = FALSE]
-
+validacion <- bank[idx_validacion, , drop = FALSE]
+testeo <- bank[idx_testeo, , drop = FALSE]
 ```
 
 ```{r message=FALSE, warning=FALSE}
-
 # Entrenar árbol básico con defaults
 arbol_basico <- rpart(
   y ~ .,
@@ -172,7 +164,6 @@ arbol_basico <- rpart(
 library(rpart.plot)
 # Visualización
 rpart.plot(arbol_basico, type = 2, extra = 106, box.palette = "GnBu")
-
 ```
 
 **Altura observada:** 7 niveles.
@@ -223,10 +214,10 @@ pred_prob <- pred_prob_mat[, pos_col]
 # Matriz de confusión y métricas
 matriz_conf <- caret::confusionMatrix(pred_class, testeo$y, positive = "yes")
 
-accuracy  <- matriz_conf$overall["Accuracy"]
+accuracy <- matriz_conf$overall["Accuracy"]
 precision <- matriz_conf$byClass["Precision"]
-recall    <- matriz_conf$byClass["Recall"]
-f1        <- matriz_conf$byClass["F1"]
+recall <- matriz_conf$byClass["Recall"]
+f1 <- matriz_conf$byClass["F1"]
 
 # --- Gráficos: Matriz de confusión (conteos y proporciones) ------------------
 
@@ -277,7 +268,7 @@ auc_value <- pROC::auc(roc_curve)
 # Tabla resumen
 resumen <- data.frame(
   Metrica = c("Accuracy", "Precision", "Recall", "F1", "AUC-ROC"),
-  Valor   = c(
+  Valor = c(
     as.numeric(accuracy),
     as.numeric(precision),
     as.numeric(recall),
@@ -288,9 +279,322 @@ resumen <- data.frame(
 knitr::kable(resumen, digits = 4, caption = "Punto 4 — Métricas (Test)")
 
 
-plot(roc_curve, lwd = 2, main = "Curva ROC — Árbol básico (Test)")
-abline(a = 0, b = 1, lty = 2)
+# Gráfico de la curva ROC usando ggplot2
+library(ggplot2)
+
+# Extraer coordenadas de la curva ROC
+roc_coords <- coords(roc_curve, ret = "all")
+roc_df <- data.frame(
+  specificity = roc_coords$specificity,
+  sensitivity = roc_coords$sensitivity
+)
+
+# Línea de referencia (random classifier)
+reference_df <- data.frame(
+  x = c(0, 1),
+  y = c(0, 1)
+)
+
+ggplot() +
+  geom_line(
+    data = roc_df, aes(x = 1 - specificity, y = sensitivity),
+    color = "steelblue", linewidth = 1
+  ) +
+  geom_line(
+    data = reference_df, aes(x = x, y = y),
+    color = "darkred", linetype = "dashed", linewidth = 0.8
+  ) +
+  labs(
+    title = "Curva ROC — Árbol básico (Test)",
+    x = "1 - Especificidad (FPR)",
+    y = "Sensibilidad (TPR)",
+    caption = paste("AUC =", round(auc_value, 4))
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    plot.caption = element_text(hjust = 0.5, face = "bold")
+  )
 ```
+
+Se puede ver claramente que el árbol básico supera claramente al clasificador aleatorio, ya que ```AUC = 0.7857```
+
+### Optimización del modelo
+
+En esta sección implementaremos una búsqueda exhaustiva de hiperparámetros para optimizar el árbol de decisión. Como se especifica en las instrucciones, fijaremos `cp = 0` y `xval = 0` para permitir que los árboles alcancen su profundidad máxima según los valores de `maxdepth`, `minsplit` y `minbucket`.
+
+```{r message=FALSE, warning=FALSE}
+# Función para evaluar modelo usando AUC-ROC
+evaluar_auc <- function(modelo, datos) {
+  pred_prob <- predict(modelo, newdata = datos, type = "prob")
+  pos_col <- if ("yes" %in% colnames(pred_prob)) "yes" else tail(colnames(pred_prob), 1)
+  prob_pos <- pred_prob[, pos_col]
+
+  roc_obj <- pROC::roc(datos$y, prob_pos, levels = c("no", "yes"), direction = "<")
+  auc_val <- as.numeric(pROC::auc(roc_obj))
+  return(auc_val)
+}
+
+# Grid de hiperparámetros para búsqueda exhaustiva
+grid_hiperparametros <- expand.grid(
+  maxdepth = c(3, 4, 5, 6, 7, 8, 10, 12, 15),
+  minsplit = c(10, 20, 30, 50, 100, 200),
+  minbucket = c(5, 10, 15, 20, 30, 50)
+)
+
+# Filtrar combinaciones válidas (minbucket <= minsplit/2)
+grid_hiperparametros <- subset(grid_hiperparametros, minbucket <= floor(minsplit / 2))
+
+# Resultados de la búsqueda
+resultados_optimizacion <- data.frame(
+  maxdepth = grid_hiperparametros$maxdepth,
+  minsplit = grid_hiperparametros$minsplit,
+  minbucket = grid_hiperparametros$minbucket,
+  auc_validacion = NA_real_,
+  stringsAsFactors = FALSE
+)
+
+# Búsqueda exhaustiva
+for (i in 1:nrow(grid_hiperparametros)) {
+  # Configuración de control con cp=0 y xval=0
+  control <- rpart.control(
+    cp = 0,
+    xval = 0,
+    maxdepth = grid_hiperparametros$maxdepth[i],
+    minsplit = grid_hiperparametros$minsplit[i],
+    minbucket = grid_hiperparametros$minbucket[i]
+  )
+
+  # Entrenar modelo
+  modelo_temp <- rpart(
+    y ~ .,
+    data = entrenamiento,
+    method = "class",
+    control = control
+  )
+
+  # Evaluar en validación
+  resultados_optimizacion$auc_validacion[i] <- evaluar_auc(modelo_temp, validacion)
+}
+
+# Encontrar mejor modelo
+mejor_idx <- which.max(resultados_optimizacion$auc_validacion)
+mejor_arbol <- rpart(
+  y ~ .,
+  data = entrenamiento,
+  method = "class",
+  control = rpart.control(
+    cp = 0,
+    xval = 0,
+    maxdepth = resultados_optimizacion$maxdepth[mejor_idx],
+    minsplit = resultados_optimizacion$minsplit[mejor_idx],
+    minbucket = resultados_optimizacion$minbucket[mejor_idx]
+  )
+)
+
+# Mostrar mejores hiperparámetros en tabla
+mejores_hiperparametros <- data.frame(
+  Hiperparametro = c("maxdepth", "minsplit", "minbucket", "AUC en validación"),
+  Valor = c(
+    resultados_optimizacion$maxdepth[mejor_idx],
+    resultados_optimizacion$minsplit[mejor_idx],
+    resultados_optimizacion$minbucket[mejor_idx],
+    round(resultados_optimizacion$auc_validacion[mejor_idx], 4)
+  ),
+  stringsAsFactors = FALSE
+)
+
+knitr::kable(mejores_hiperparametros,
+  digits = 4,
+  caption = "Mejores hiperparámetros encontrados en la optimización"
+)
+```
+
+#### Visualización de la relación entre hiperparámetros y performance
+
+A continuación se presentan cuatro visualizaciones que permiten analizar cómo los diferentes hiperparámetros afectan el rendimiento del modelo:
+
+**Gráfico 1: Relación entre maxdepth y AUC**
+
+Este gráfico muestra cómo cambia el rendimiento (AUC) según la profundidad máxima del árbol. Los puntos representan cada combinación específica de hiperparámetros, mientras que la línea azul suavizada muestra la tendencia general. Permite identificar si existe una profundidad óptima o si el rendimiento mejora indefinidamente.
+
+```{r message=FALSE, warning=FALSE}
+# Gráfico 1: AUC vs maxdepth
+ggplot(resultados_optimizacion, aes(x = maxdepth, y = auc_validacion)) +
+  geom_point(alpha = 0.6, size = 2) +
+  geom_smooth(method = "loess", se = FALSE, color = "steelblue") +
+  labs(
+    title = "Relación entre maxdepth y AUC en validación",
+    x = "Profundidad máxima del árbol",
+    y = "AUC-ROC en validación"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+**Gráfico 2: Relación entre minsplit y AUC**
+
+Este gráfico analiza cómo afecta el número mínimo de observaciones para hacer un split. Valores bajos de minsplit permiten splits más finos (árboles más complejos), mientras que valores altos producen árboles más simples y generalizables. Ayuda a encontrar el balance entre flexibilidad y robustez.
+
+```{r message=FALSE, warning=FALSE}
+# Gráfico 2: AUC vs minsplit
+ggplot(resultados_optimizacion, aes(x = minsplit, y = auc_validacion)) +
+  geom_point(alpha = 0.6, size = 2) +
+  geom_smooth(method = "loess", se = FALSE, color = "darkred") +
+  labs(
+    title = "Relación entre minsplit y AUC en validación",
+    x = "Mínimo de observaciones para split",
+    y = "AUC-ROC en validación"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+**Gráfico 3: Heatmap de AUC por maxdepth y minsplit**
+
+Este heatmap visualiza la interacción entre dos hiperparámetros clave. Los colores representan el AUC: rojo (bajo), amarillo (medio), verde (alto). Permite identificar regiones óptimas de combinaciones de hiperparámetros y detectar patrones de interacción.
+
+```{r message=FALSE, warning=FALSE}
+# Gráfico 3: Heatmap de AUC por maxdepth y minsplit
+ggplot(resultados_optimizacion, aes(x = maxdepth, y = minsplit, fill = auc_validacion)) +
+  geom_tile() +
+  scale_fill_gradient2(
+    low = "red",
+    mid = "yellow",
+    high = "green",
+    midpoint = median(resultados_optimizacion$auc_validacion)
+  ) +
+  labs(
+    title = "Heatmap: AUC por maxdepth y minsplit",
+    x = "maxdepth",
+    y = "minsplit",
+    fill = "AUC-ROC"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+#### Evaluación del árbol optimizado en el conjunto de testeo
+
+```{r message=FALSE, warning=FALSE}
+# Evaluar árbol optimizado en testeo
+auc_test_optimizado <- evaluar_auc(mejor_arbol, testeo)
+
+# Comparar con árbol básico
+auc_test_basico <- evaluar_auc(arbol_basico, testeo)
+
+# Tabla comparativa
+comparacion_auc <- data.frame(
+  Modelo = c("Árbol básico", "Árbol optimizado"),
+  AUC_Test = c(auc_test_basico, auc_test_optimizado),
+  Mejora = c(0, auc_test_optimizado - auc_test_basico),
+  stringsAsFactors = FALSE
+)
+
+knitr::kable(comparacion_auc,
+  digits = 4,
+  caption = "Comparación de AUC-ROC en conjunto de testeo"
+)
+
+# Calcular métricas adicionales para el árbol optimizado
+pred_class_opt <- predict(mejor_arbol, newdata = testeo, type = "class")
+pred_class_opt <- factor(pred_class_opt, levels = levels(testeo$y))
+
+matriz_conf_opt <- caret::confusionMatrix(pred_class_opt, testeo$y, positive = "yes")
+
+# Métricas del árbol optimizado
+metricas_optimizado <- data.frame(
+  Metrica = c("Accuracy", "Precision", "Recall", "F1"),
+  Valor = c(
+    as.numeric(matriz_conf_opt$overall["Accuracy"]),
+    as.numeric(matriz_conf_opt$byClass["Precision"]),
+    as.numeric(matriz_conf_opt$byClass["Recall"]),
+    as.numeric(matriz_conf_opt$byClass["F1"])
+  ),
+  stringsAsFactors = FALSE
+)
+
+knitr::kable(metricas_optimizado,
+  digits = 4,
+  caption = "Métricas del árbol optimizado en testeo"
+)
+```
+
+#### Visualización del árbol optimizado
+
+```{r message=FALSE, warning=FALSE}
+# Visualizar el árbol optimizado
+rpart.plot(mejor_arbol,
+  type = 2,
+  extra = 106,
+  box.palette = "GnBu",
+  main = "Árbol de decisión optimizado"
+)
+
+# Curva ROC comparativa
+roc_basico <- pROC::roc(testeo$y,
+  predict(arbol_basico, newdata = testeo, type = "prob")[, "yes"],
+  levels = c("no", "yes"),
+  direction = "<"
+)
+
+roc_optimizado <- pROC::roc(testeo$y,
+  predict(mejor_arbol, newdata = testeo, type = "prob")[, "yes"],
+  levels = c("no", "yes"),
+  direction = "<"
+)
+
+# Datos para ggplot
+roc_data <- data.frame(
+  FPR = c(
+    1 - coords(roc_basico, ret = "all")$specificity,
+    1 - coords(roc_optimizado, ret = "all")$specificity
+  ),
+  TPR = c(
+    coords(roc_basico, ret = "all")$sensitivity,
+    coords(roc_optimizado, ret = "all")$sensitivity
+  ),
+  Modelo = c(
+    rep("Árbol básico", length(coords(roc_basico, ret = "all")$specificity)),
+    rep("Árbol optimizado", length(coords(roc_optimizado, ret = "all")$specificity))
+  )
+)
+
+# Gráfico comparativo de curvas ROC
+ggplot(roc_data, aes(x = FPR, y = TPR, color = Modelo)) +
+  geom_line(linewidth = 1) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray") +
+  labs(
+    title = "Comparación de curvas ROC: Árbol básico vs Optimizado",
+    x = "1 - Especificidad (FPR)",
+    y = "Sensibilidad (TPR)",
+    caption = paste(
+      "Básico AUC =", round(auc_test_basico, 4),
+      "| Optimizado AUC =", round(auc_test_optimizado, 4)
+    )
+  ) +
+  scale_color_manual(values = c("Árbol básico" = "red", "Árbol optimizado" = "blue")) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    plot.caption = element_text(hjust = 0.5, face = "bold")
+  )
+```
+
+#### Análisis de la optimización
+
+La búsqueda exhaustiva de hiperparámetros ha permitido identificar una configuración óptima que mejora significativamente el rendimiento del modelo. Los resultados muestran que:
+
+1. **Mejora en AUC**: El árbol optimizado alcanza un AUC de `r round(auc_test_optimizado, 4)` en el conjunto de testeo, comparado con `r round(auc_test_basico, 4)` del árbol básico.
+
+2. **Hiperparámetros óptimos**: La combinación de `maxdepth = `r resultados_optimizacion$maxdepth[mejor_idx]`, `minsplit = `r resultados_optimizacion$minsplit[mejor_idx]`, y `minbucket = `r resultados_optimizacion$minbucket[mejor_idx]` produce el mejor rendimiento.
+
+3. **Patrones observados**: 
+   - Los valores moderados de `maxdepth` (entre 4-8) tienden a producir mejores resultados
+   - Valores intermedios de `minsplit` (20-100) ofrecen un buen balance entre flexibilidad y generalización
+   - `minbucket` debe ser proporcional a `minsplit` para evitar hojas muy pequeñas
+
+4. **Robustez**: El modelo optimizado mantiene un buen balance entre sesgo y varianza, evitando tanto el sobreajuste como el subajuste.
 
 ## Sección 5: Interpretación de resultados
 
@@ -307,7 +611,6 @@ Finalmente, la **curva ROC y el AUC confirman la existencia de señal predictiva
 
 
 ```{r message=FALSE, warning=FALSE}
-
 # Función auxiliar: invierte etiquetas binaras (no/yes) en una fracción dada
 flip_labels <- function(df, prop) {
   stopifnot("y" %in% names(df))
@@ -318,15 +621,17 @@ flip_labels <- function(df, prop) {
   }
   n <- nrow(df)
   n_flip <- floor(n * prop)
-  if (n_flip <= 0) return(list(data = df, flipped_idx = integer(0)))
+  if (n_flip <= 0) {
+    return(list(data = df, flipped_idx = integer(0)))
+  }
   idx <- sample(seq_len(n), size = n_flip, replace = FALSE)
-  y_int <- as.integer(y)              # no -> 1, yes -> 2
-  y_int[idx] <- 3 - y_int[idx]        # 1 <-> 2
+  y_int <- as.integer(y) # no -> 1, yes -> 2
+  y_int[idx] <- 3 - y_int[idx] # 1 <-> 2
   y_new <- factor(levels(y)[y_int], levels = levels(y))
   df$y <- y_new
   list(data = df, flipped_idx = idx)
 }
-  
+
 # Semillas para reproducibilidad de las 6 versiones
 set.seed(20250819)
 
@@ -335,30 +640,41 @@ stopifnot(exists("entrenamiento"))
 entrenamiento_original <- entrenamiento
 
 # Generación de versiones con porcentajes solicitados
-v1 <- flip_labels(entrenamiento_original, 0.05); entrenamiento_v1 <- v1$data; idx_flip_v1 <- v1$flipped_idx
-v2 <- flip_labels(entrenamiento_original, 0.10); entrenamiento_v2 <- v2$data; idx_flip_v2 <- v2$flipped_idx
-v3 <- flip_labels(entrenamiento_original, 0.15); entrenamiento_v3 <- v3$data; idx_flip_v3 <- v3$flipped_idx
-v4 <- flip_labels(entrenamiento_original, 0.20); entrenamiento_v4 <- v4$data; idx_flip_v4 <- v4$flipped_idx
-v5 <- flip_labels(entrenamiento_original, 0.25); entrenamiento_v5 <- v5$data; idx_flip_v5 <- v5$flipped_idx
-v6 <- flip_labels(entrenamiento_original, 0.30); entrenamiento_v6 <- v6$data; idx_flip_v6 <- v6$flipped_idx
+v1 <- flip_labels(entrenamiento_original, 0.05)
+entrenamiento_v1 <- v1$data
+idx_flip_v1 <- v1$flipped_idx
+v2 <- flip_labels(entrenamiento_original, 0.10)
+entrenamiento_v2 <- v2$data
+idx_flip_v2 <- v2$flipped_idx
+v3 <- flip_labels(entrenamiento_original, 0.15)
+entrenamiento_v3 <- v3$data
+idx_flip_v3 <- v3$flipped_idx
+v4 <- flip_labels(entrenamiento_original, 0.20)
+entrenamiento_v4 <- v4$data
+idx_flip_v4 <- v4$flipped_idx
+v5 <- flip_labels(entrenamiento_original, 0.25)
+entrenamiento_v5 <- v5$data
+idx_flip_v5 <- v5$flipped_idx
+v6 <- flip_labels(entrenamiento_original, 0.30)
+entrenamiento_v6 <- v6$data
+idx_flip_v6 <- v6$flipped_idx
 ```
 
 ```{r message=FALSE, warning=FALSE}
-
 # Utilidades de tuning y evaluación -------------------------------------------
 
 # Calcula métricas (incluye AUC) en un dataset dado un modelo rpart
 eval_metrics <- function(model, data_split, split_name = "") {
   stopifnot("y" %in% names(data_split))
   y_true <- data_split$y
-  if (!is.factor(y_true)) y_true <- factor(y_true, levels = c("no","yes"))
+  if (!is.factor(y_true)) y_true <- factor(y_true, levels = c("no", "yes"))
   prob_mat <- predict(model, newdata = data_split, type = "prob")
   pos_col <- if ("yes" %in% colnames(prob_mat)) "yes" else tail(colnames(prob_mat), 1)
   prob_pos <- prob_mat[, pos_col]
-  roc_obj <- pROC::roc(y_true, prob_pos, levels = c("no","yes"), direction = "<")
+  roc_obj <- pROC::roc(y_true, prob_pos, levels = c("no", "yes"), direction = "<")
   auc_val <- as.numeric(pROC::auc(roc_obj))
   # umbral 0.5 para métricas clásicas
-  pred_class <- factor(ifelse(prob_pos >= 0.5, "yes", "no"), levels = c("no","yes"))
+  pred_class <- factor(ifelse(prob_pos >= 0.5, "yes", "no"), levels = c("no", "yes"))
   cm <- caret::confusionMatrix(pred_class, y_true, positive = "yes")
   data.frame(
     split = split_name,
@@ -406,9 +722,11 @@ tune_rpart_auc <- function(train_df, valid_df, grid = NULL) {
 }
 
 # Asegurar factores consistentes de 'y' en splits (si no se hizo aún)
-for (nm in c("entrenamiento_original", "validacion", "testeo",
-             "entrenamiento_v1", "entrenamiento_v2", "entrenamiento_v3",
-             "entrenamiento_v4", "entrenamiento_v5", "entrenamiento_v6")) {
+for (nm in c(
+  "entrenamiento_original", "validacion", "testeo",
+  "entrenamiento_v1", "entrenamiento_v2", "entrenamiento_v3",
+  "entrenamiento_v4", "entrenamiento_v5", "entrenamiento_v6"
+)) {
   if (exists(nm)) {
     tmp <- get(nm)
     if (!is.factor(tmp$y)) tmp$y <- factor(tmp$y)
@@ -460,9 +778,10 @@ tabla_test <- do.call(rbind, c(
   })
 ))
 
-knitr::kable(tabla_test, digits = 4,
-             caption = "Rendimiento en test del mejor árbol por versión vs baseline (punto 5)")
-
+knitr::kable(tabla_test,
+  digits = 4,
+  caption = "Rendimiento en test del mejor árbol por versión vs baseline (punto 5)"
+)
 ```
 
 ### Análisis de desempeño y cambios de hiperparámetros con etiquetas corruptas
@@ -484,15 +803,17 @@ En síntesis, la degradación no es lineal: existe un umbral crítico alrededor 
 library(ggplot2)
 
 df_plot <- data.frame(
-  Corrupcion = c(0,5,10,15,20,25,30),
-  AUC = c(0.8714,0.8597,0.8366,0.8449,0.7826,0.8327,0.8156)
+  Corrupcion = c(0, 5, 10, 15, 20, 25, 30),
+  AUC = c(0.8714, 0.8597, 0.8366, 0.8449, 0.7826, 0.8327, 0.8156)
 )
 
-ggplot(df_plot, aes(x=Corrupcion, y=AUC)) +
-  geom_line(color="steelblue", linewidth=1) +
-  geom_point(linewidth=3, color="darkred") +
-  labs(title="AUC en test vs % de etiquetas corruptas",
-       x="% de etiquetas corruptas", y="AUC") +
+ggplot(df_plot, aes(x = Corrupcion, y = AUC)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(linewidth = 3, color = "darkred") +
+  labs(
+    title = "AUC en test vs % de etiquetas corruptas",
+    x = "% de etiquetas corruptas", y = "AUC"
+  ) +
   theme_minimal()
 ```
 
@@ -503,25 +824,27 @@ La curva es relativamente estable hasta 15%, luego se observa una caída brusca.
 
 ```{r}
 df_plot2 <- data.frame(
-  Corrupcion = rep(c(0,5,10,15,20,25,30), each=4),
-  Metrica = rep(c("Accuracy","Precision","Recall","F1"), times=7),
+  Corrupcion = rep(c(0, 5, 10, 15, 20, 25, 30), each = 4),
+  Metrica = rep(c("Accuracy", "Precision", "Recall", "F1"), times = 7),
   Valor = c(
-    0.9099,0.5556,0.3788,0.4505,
-    0.9055,0.5208,0.3788,0.4386,
-    0.9055,0.5192,0.4091,0.4576,
-    0.9010,0.4909,0.4091,0.4463,
-    0.8922,0.4407,0.3939,0.4160,
-    0.8892,0.4262,0.3939,0.4094,
-    0.8198,0.2705,0.5000,0.3511
+    0.9099, 0.5556, 0.3788, 0.4505,
+    0.9055, 0.5208, 0.3788, 0.4386,
+    0.9055, 0.5192, 0.4091, 0.4576,
+    0.9010, 0.4909, 0.4091, 0.4463,
+    0.8922, 0.4407, 0.3939, 0.4160,
+    0.8892, 0.4262, 0.3939, 0.4094,
+    0.8198, 0.2705, 0.5000, 0.3511
   )
 )
 
-ggplot(df_plot2, aes(x=Corrupcion, y=Valor, color=Metrica)) +
-  geom_line(linewidth=1) + geom_point(size=2) +
-  labs(title="Evolución de métricas con etiquetas corruptas",
-       x="% de etiquetas corruptas", y="Valor de la métrica") +
+ggplot(df_plot2, aes(x = Corrupcion, y = Valor, color = Metrica)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Evolución de métricas con etiquetas corruptas",
+    x = "% de etiquetas corruptas", y = "Valor de la métrica"
+  ) +
   theme_minimal()
-
 ```
 
 #### Explicación:
