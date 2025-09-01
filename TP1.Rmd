@@ -7,9 +7,9 @@ output:
 # Librerias
 library(readr)
 library(dplyr)
+library(MLmetrics)
 library(ggplot2)
 library(pROC)
-library(caret)
 library(rpart)
 
 # Semilla
@@ -211,20 +211,28 @@ pred_prob_mat <- predict(arbol_basico, newdata = testeo, type = "prob")
 pos_col <- if ("yes" %in% colnames(pred_prob_mat)) "yes" else tail(colnames(pred_prob_mat), 1)
 pred_prob <- pred_prob_mat[, pos_col]
 
-# Matriz de confusión y métricas
-matriz_conf <- caret::confusionMatrix(pred_class, testeo$y, positive = "yes")
+y_true_num <- ifelse(testeo$y == "yes", 1, 0)
+y_pred_num <- ifelse(pred_class == "yes", 1, 0)
 
-accuracy <- matriz_conf$overall["Accuracy"]
-precision <- matriz_conf$byClass["Precision"]
-recall <- matriz_conf$byClass["Recall"]
-f1 <- matriz_conf$byClass["F1"]
+# Matriz de confusión y métricas
+matriz_conf_tbl <- MLmetrics::ConfusionMatrix(y_pred = y_pred_num, y_true = y_true_num)
+
+accuracy  <- MLmetrics::Accuracy(y_pred = y_pred_num, y_true = y_true_num)
+precision <- MLmetrics::Precision(y_true = y_true_num, y_pred = y_pred_num, positive = "1")
+recall    <- MLmetrics::Recall(y_true = y_true_num,    y_pred = y_pred_num, positive = "1")
+f1        <- MLmetrics::F1_Score(y_true = y_true_num,  y_pred = y_pred_num, positive = "1")
 
 # --- Gráficos: Matriz de confusión (conteos y proporciones) ------------------
 
-# Conteos
-cm_tbl <- as.table(matriz_conf$table)
-cm_df <- as.data.frame(cm_tbl)
+# Conteos (CAMBIA la fuente de la tabla y se mapean 0/1 -> no/yes)
+cm_tbl <- as.table(matriz_conf_tbl)          # <— antes venía de matriz_conf$table (caret)
+cm_df  <- as.data.frame(cm_tbl)
 names(cm_df) <- c("real", "pred", "freq")
+
+# mapear etiquetas para que el gráfico muestre "no"/"yes"
+map01 <- c("0" = "no", "1" = "yes")
+cm_df$real <- factor(map01[as.character(cm_df$real)], levels = c("no", "yes"))
+cm_df$pred <- factor(map01[as.character(cm_df$pred)], levels = c("no", "yes"))
 
 ggplot(cm_df, aes(x = real, y = pred, fill = freq)) +
   geom_tile(color = "white") +
@@ -238,7 +246,7 @@ ggplot(cm_df, aes(x = real, y = pred, fill = freq)) +
   ) +
   theme_minimal()
 
-# Proporciones por clase real
+# Proporciones por clase real (SIN CAMBIOS en la lógica)
 cm_prop <- dplyr::group_by(cm_df, real)
 cm_prop <- dplyr::mutate(cm_prop, prop = freq / sum(freq))
 cm_prop <- dplyr::ungroup(cm_prop)
@@ -257,15 +265,17 @@ ggplot(cm_prop, aes(x = real, y = pred, fill = prop)) +
 
 
 # ROC y AUC
+# (Dejamos pROC para la curva, pero el AUC lo calculamos con MLmetrics SOBRE pred_prob + y_true_num)
 roc_curve <- pROC::roc(
-  testeo$y,
-  pred_prob,
+  response = testeo$y,
+  predictor = pred_prob,
   levels = c("no", "yes"),
   direction = "<"
 )
-auc_value <- pROC::auc(roc_curve)
 
-# Tabla resumen
+auc_value <- MLmetrics::AUC(y_pred = as.numeric(pred_prob), y_true = y_true_num)  # <— CAMBIA
+
+# Tabla resumen (usa las métricas calculadas con MLmetrics y este AUC de MLmetrics)
 resumen <- data.frame(
   Metrica = c("Accuracy", "Precision", "Recall", "F1", "AUC-ROC"),
   Valor = c(
@@ -276,12 +286,10 @@ resumen <- data.frame(
     as.numeric(auc_value)
   )
 )
-knitr::kable(resumen, digits = 4, caption = "Punto 4 — Métricas (Test)")
+knitr::kable(resumen, digits = 4, caption = "Punto 4 — Métricas (Test) con MLmetrics")
 
 
-# Gráfico de la curva ROC usando ggplot2
-library(ggplot2)
-
+# Gráfico de la curva ROC usando ggplot2 (SIN CAMBIOS, solo cambia el caption porque usa el AUC anterior)
 # Extraer coordenadas de la curva ROC
 roc_coords <- coords(roc_curve, ret = "all")
 roc_df <- data.frame(
@@ -290,10 +298,7 @@ roc_df <- data.frame(
 )
 
 # Línea de referencia (random classifier)
-reference_df <- data.frame(
-  x = c(0, 1),
-  y = c(0, 1)
-)
+reference_df <- data.frame(x = c(0, 1), y = c(0, 1))
 
 ggplot() +
   geom_line(
@@ -308,13 +313,14 @@ ggplot() +
     title = "Curva ROC — Árbol básico (Test)",
     x = "1 - Especificidad (FPR)",
     y = "Sensibilidad (TPR)",
-    caption = paste("AUC =", round(auc_value, 4))
+    caption = paste("AUC (MLmetrics) =", round(auc_value, 4))  # <— CAMBIA el texto del caption
   ) +
   theme_minimal() +
   theme(
     plot.title = element_text(hjust = 0.5),
     plot.caption = element_text(hjust = 0.5, face = "bold")
   )
+
 ```
 
 Se puede ver claramente que el árbol básico supera claramente al clasificador aleatorio, ya que ```AUC = 0.7857```
@@ -500,23 +506,26 @@ knitr::kable(comparacion_auc,
 pred_class_opt <- predict(mejor_arbol, newdata = testeo, type = "class")
 pred_class_opt <- factor(pred_class_opt, levels = levels(testeo$y))
 
-matriz_conf_opt <- caret::confusionMatrix(pred_class_opt, testeo$y, positive = "yes")
+# Convertir a 0/1
+y_true_num_opt <- ifelse(testeo$y == "yes", 1, 0)
+y_pred_num_opt <- ifelse(pred_class_opt == "yes", 1, 0)
 
-# Métricas del árbol optimizado
+# Calcular métricas con MLmetrics
+accuracy_opt  <- MLmetrics::Accuracy(y_pred = y_pred_num_opt, y_true = y_true_num_opt)
+precision_opt <- MLmetrics::Precision(y_true = y_true_num_opt, y_pred = y_pred_num_opt, positive = "1")
+recall_opt    <- MLmetrics::Recall(y_true = y_true_num_opt,    y_pred = y_pred_num_opt, positive = "1")
+f1_opt        <- MLmetrics::F1_Score(y_true = y_true_num_opt,  y_pred = y_pred_num_opt, positive = "1")
+
+# Tabla resumen
 metricas_optimizado <- data.frame(
   Metrica = c("Accuracy", "Precision", "Recall", "F1"),
-  Valor = c(
-    as.numeric(matriz_conf_opt$overall["Accuracy"]),
-    as.numeric(matriz_conf_opt$byClass["Precision"]),
-    as.numeric(matriz_conf_opt$byClass["Recall"]),
-    as.numeric(matriz_conf_opt$byClass["F1"])
-  ),
+  Valor = c(accuracy_opt, precision_opt, recall_opt, f1_opt),
   stringsAsFactors = FALSE
 )
 
 knitr::kable(metricas_optimizado,
   digits = 4,
-  caption = "Métricas del árbol optimizado en testeo"
+  caption = "Métricas del árbol optimizado en testeo (MLmetrics)"
 )
 ```
 
@@ -531,39 +540,33 @@ rpart.plot(mejor_arbol,
   main = "Árbol de decisión optimizado"
 )
 
-# Curva ROC comparativa
-roc_basico <- pROC::roc(testeo$y,
-  predict(arbol_basico, newdata = testeo, type = "prob")[, "yes"],
-  levels = c("no", "yes"),
-  direction = "<"
-)
+prob_basico <- predict(arbol_basico, newdata = testeo, type = "prob")
+col_pos_b   <- if ("yes" %in% colnames(prob_basico)) "yes" else tail(colnames(prob_basico), 1)
 
-roc_optimizado <- pROC::roc(testeo$y,
-  predict(mejor_arbol, newdata = testeo, type = "prob")[, "yes"],
-  levels = c("no", "yes"),
-  direction = "<"
-)
+prob_opt    <- predict(mejor_arbol, newdata = testeo, type = "prob")
+col_pos_o   <- if ("yes" %in% colnames(prob_opt)) "yes" else tail(colnames(prob_opt), 1)
 
-# Datos para ggplot
+# ROC 
+roc_basico <- pROC::roc(testeo$y, prob_basico[, col_pos_b], levels = c("no", "yes"), direction = "<")
+roc_optimizado <- pROC::roc(testeo$y, prob_opt[, col_pos_o], levels = c("no", "yes"), direction = "<")
+
+# Extraer coordenadas una sola vez
+cb <- pROC::coords(roc_basico, ret = "all")
+co <- pROC::coords(roc_optimizado, ret = "all")
+
+
 roc_data <- data.frame(
-  FPR = c(
-    1 - coords(roc_basico, ret = "all")$specificity,
-    1 - coords(roc_optimizado, ret = "all")$specificity
-  ),
-  TPR = c(
-    coords(roc_basico, ret = "all")$sensitivity,
-    coords(roc_optimizado, ret = "all")$sensitivity
-  ),
-  Modelo = c(
-    rep("Árbol básico", length(coords(roc_basico, ret = "all")$specificity)),
-    rep("Árbol optimizado", length(coords(roc_optimizado, ret = "all")$specificity))
-  )
+  FPR = c(1 - cb$specificity, 1 - co$specificity),
+  TPR = c(cb$sensitivity,     co$sensitivity),
+  Modelo = c(rep("Árbol básico", length(cb$specificity)),
+             rep("Árbol optimizado", length(co$specificity)))
 )
 
-# Gráfico comparativo de curvas ROC
+# Gráfico comparativo
 ggplot(roc_data, aes(x = FPR, y = TPR, color = Modelo)) +
-  geom_line() +
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray") +
+  geom_line(linewidth = 1) +   # <- grosor consistente
+  geom_abline(slope = 1, intercept = 0, 
+              linetype = "dashed", color = "gray", linewidth = 0.8) +  # <- línea de referencia
   labs(
     title = "Comparación de curvas ROC: Árbol básico vs Optimizado",
     x = "1 - Especificidad (FPR)",
@@ -573,10 +576,11 @@ ggplot(roc_data, aes(x = FPR, y = TPR, color = Modelo)) +
       "| Optimizado AUC =", round(auc_test_optimizado, 4)
     )
   ) +
-  scale_color_manual(values = c("Árbol básico" = "red", "Árbol optimizado" = "blue")) +
+  scale_color_manual(values = c("Árbol básico" = "red", 
+                                "Árbol optimizado" = "blue")) +
   theme_minimal() +
   theme(
-    plot.title = element_text(hjust = 0.5),
+    plot.title   = element_text(hjust = 0.5),
     plot.caption = element_text(hjust = 0.5, face = "bold")
   )
 ```
@@ -677,15 +681,15 @@ for (nm in c("entrenamiento_original", "validacion", "testeo")) {
   }
 }
 
-# Evaluación de baseline en testeo usando evaluar_auc
+# --- Baseline (árbol optimizado original) en testeo con MLmetrics::AUC ----------
 baseline_test_auc <- evaluar_auc(mejor_arbol, testeo)
 
-# Optimización para cada versión corrupta usando el mismo enfoque de la Sección 4
+# --- Optimización para cada versión corrupta (mismo enfoque que Sección 4) -------
 resultados_versiones <- list()
 mejores_modelos_versiones <- list()
 
 for (nm in names(versiones_corruptas)) {
-  # Aplicar la misma optimización de hiperparámetros de la Sección 4
+  # tabla de resultados para esta versión
   resultados_temp <- data.frame(
     maxdepth = grid_hiperparametros$maxdepth,
     minsplit = grid_hiperparametros$minsplit,
@@ -694,7 +698,7 @@ for (nm in names(versiones_corruptas)) {
     stringsAsFactors = FALSE
   )
 
-  # Búsqueda exhaustiva para esta versión corrupta usando evaluar_auc
+  # búsqueda exhaustiva
   for (i in 1:nrow(grid_hiperparametros)) {
     control <- rpart.control(
       cp = 0,
@@ -714,8 +718,9 @@ for (nm in names(versiones_corruptas)) {
     resultados_temp$auc_validacion[i] <- evaluar_auc(modelo_temp, validacion)
   }
 
-  # Encontrar mejor modelo para esta versión
+  # mejor combinación para esta versión
   mejor_idx_temp <- which.max(resultados_temp$auc_validacion)
+
   mejor_modelo_temp <- rpart(
     y ~ .,
     data = versiones_corruptas[[nm]]$data,
@@ -729,42 +734,55 @@ for (nm in names(versiones_corruptas)) {
     )
   )
 
-  # Guardar resultados
   resultados_versiones[[nm]] <- resultados_temp
   mejores_modelos_versiones[[nm]] <- mejor_modelo_temp
 }
 
-# Evaluación comparativa en testeo
+# --- Evaluación comparativa en testeo (AUC con MLmetrics) -----------------------
+# Asegurar orden V1..V6 en caso de que la lista no venga ordenada
+orden_versions <- paste0("V", seq_along(porcentajes_corrupcion))
+
 resultados_test_comparativo <- data.frame(
-  Version = c("Baseline (0%)", paste0(" (", porcentajes_corrupcion * 100, "%)")),
-  AUC_Test = c(baseline_test_auc, sapply(mejores_modelos_versiones, function(m) evaluar_auc(m, testeo))),
+  Version = c("Baseline (0%)",
+              paste0(orden_versions, " (", porcentajes_corrupcion * 100, "%)")),
+  AUC_Test = c(
+    baseline_test_auc,
+    vapply(orden_versions, function(nm)
+      evaluar_auc(mejores_modelos_versiones[[nm]], testeo), numeric(1))
+  ),
   Porcentaje_Corrupcion = c(0, porcentajes_corrupcion * 100),
   stringsAsFactors = FALSE
 )
 
-# Agregar métricas adicionales para análisis completo
+# --- Agregar métricas adicionales (Accuracy/Precision/Recall/F1 con MLmetrics) ---
 for (i in 1:nrow(resultados_test_comparativo)) {
+
+  # elegir el modelo correspondiente a la fila
   if (i == 1) {
-    modelo_actual <- mejor_arbol
+    modelo_actual <- mejor_arbol  # baseline
   } else {
-    modelo_actual <- mejores_modelos_versiones[[paste0("V", i - 1)]]
+    modelo_actual <- mejores_modelos_versiones[[orden_versions[i - 1]]]
   }
 
-  # Calcular métricas usando el mismo enfoque de la Sección 4
+  # clases predichas en testeo
   pred_class <- predict(modelo_actual, newdata = testeo, type = "class")
   pred_class <- factor(pred_class, levels = levels(testeo$y))
 
-  matriz_conf <- caret::confusionMatrix(pred_class, testeo$y, positive = "yes")
+  # convertir a 0/1(1 = "yes")
+  y_true_num <- ifelse(testeo$y  == "yes", 1, 0)
+  y_pred_num <- ifelse(pred_class == "yes", 1, 0)
 
-  resultados_test_comparativo$Accuracy[i] <- as.numeric(matriz_conf$overall["Accuracy"])
-  resultados_test_comparativo$Precision[i] <- as.numeric(matriz_conf$byClass["Precision"])
-  resultados_test_comparativo$Recall[i] <- as.numeric(matriz_conf$byClass["Recall"])
-  resultados_test_comparativo$F1[i] <- as.numeric(matriz_conf$byClass["F1"])
+  # métricas MLmetrics
+  resultados_test_comparativo$Accuracy[i]  <- MLmetrics::Accuracy(y_pred = y_pred_num, y_true = y_true_num)
+  resultados_test_comparativo$Precision[i] <- MLmetrics::Precision(y_true = y_true_num, y_pred = y_pred_num, positive = "1")
+  resultados_test_comparativo$Recall[i]    <- MLmetrics::Recall(y_true = y_true_num,    y_pred = y_pred_num, positive = "1")
+  resultados_test_comparativo$F1[i]        <- MLmetrics::F1_Score(y_true = y_true_num,  y_pred = y_pred_num, positive = "1")
 }
-# Mostrar resultados comparativos
+
+# --- Mostrar tabla comparativa ---------------------------------------------------
 knitr::kable(resultados_test_comparativo,
   digits = 4,
-  caption = "Rendimiento comparativo: Baseline vs Versiones con etiquetas corruptas"
+  caption = "Rendimiento comparativo (Test): Baseline vs Versiones con etiquetas corruptas"
 )
 ```
 ### Análisis de la evolución de hiperparámetros óptimos
