@@ -927,7 +927,7 @@ Esto nos permite determinar si la robustez del modelo proviene de cambios adapta
 
 
 
-## Conclusiones
+## Sección 7: Conclusiones
 
 El análisis realizado nos permitió evaluar de manera integral el desempeño de los árboles de decisión en un problema de clasificación binaria con un dataset de gran tamaño y características mixtas (variables numéricas y categóricas). A lo largo de las distintas etapas observamos lo siguiente:
 - Árbol básico vs. árbol optimizado: el modelo inicial construido con parámetros por defecto mostró un rendimiento aceptable, pero al ajustar los hiperparámetros (maxdepth, minsplit y minbucket) se obtuvieron mejoras significativas en AUC-ROC y métricas asociadas. Esto confirma la importancia de una búsqueda sistemática de hiperparámetros en modelos de árboles.
