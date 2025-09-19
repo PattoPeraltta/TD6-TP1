@@ -948,8 +948,12 @@ Esto nos permite determinar si la robustez del modelo proviene de cambios adapta
 ## Sección 7: Conclusiones
 
 El análisis realizado nos permitió evaluar de manera integral el desempeño de los árboles de decisión en un problema de clasificación binaria con un dataset de gran tamaño y características mixtas (variables numéricas y categóricas). A lo largo de las distintas etapas observamos lo siguiente:
+
 - Árbol básico vs. árbol optimizado: el modelo inicial construido con parámetros por defecto mostró un rendimiento aceptable, pero al ajustar los hiperparámetros (maxdepth, minsplit y minbucket) se obtuvieron mejoras significativas en AUC-ROC y métricas asociadas. Esto confirma la importancia de una búsqueda sistemática de hiperparámetros en modelos de árboles.
+
 - Interpretabilidad y variables relevantes: el árbol optimizado permitió identificar claramente las variables con mayor peso predictivo, lo cual constituye una de las principales ventajas de los árboles de decisión frente a otros modelos más complejos y de “caja negra”.
+
 - Impacto de etiquetas corruptas: la simulación de ruido en la variable objetivo mostró que el rendimiento del modelo se degrada a medida que aumenta el porcentaje de observaciones mal etiquetadas. La caída no fue lineal: se detectaron puntos críticos a partir de niveles intermedios de corrupción (20-25%) donde la performance empeoró más drásticamente. Esto refleja la sensibilidad de los árboles a la calidad de las etiquetas y la importancia de contar con procesos de recolección y validación confiables de los datos.
-- Reflexión general: los árboles de decisión resultan efectivos para este problema, al balancear interpretabilidad y capacidad predictiva. Sin embargo, su sensibilidad al ruido y a la selección de hiperparámetros sugiere que en escenarios reales podría ser beneficioso complementar este enfoque con métodos más robustos, como ensembles (Random Forest, Gradient Boosting) o técnicas de preprocesamiento orientadas a la detección y corrección de errores de etiquetado.
+
+Reflexión general: los árboles de decisión resultan efectivos para este problema, al balancear interpretabilidad y capacidad predictiva. Sin embargo, su sensibilidad al ruido y a la selección de hiperparámetros sugiere que en escenarios reales podría ser beneficioso complementar este enfoque con métodos más robustos, como ensembles (Random Forest, Gradient Boosting) o técnicas de preprocesamiento orientadas a la detección y corrección de errores de etiquetado.
 El trabajo puso en evidencia tanto las fortalezas como las limitaciones de los árboles de decisión, ofreciendo un panorama completo sobre su aplicabilidad y destacando posibles líneas de mejora en futuros análisis.
